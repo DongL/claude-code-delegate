@@ -7,8 +7,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RUNNER="$SCRIPT_DIR/../scripts/run-claude-code.sh"
 COMPACT="$SCRIPT_DIR/../scripts/compact-claude-stream.py"
 ADAPTER="$SCRIPT_DIR/../scripts/delegation-adapter.py"
+AGGREGATOR="$SCRIPT_DIR/../scripts/aggregate-profile-log.py"
 
-for f in "$RUNNER" "$COMPACT" "$ADAPTER"; do
+for f in "$RUNNER" "$COMPACT" "$ADAPTER" "$AGGREGATOR"; do
   [ -f "$f" ] || { echo "ERROR: $f not found"; exit 1; }
 done
 
@@ -548,6 +549,205 @@ test_jira "bullet list preserved" "- item one\n- item two" "- item one"
 test_jira "multi-line comprehensive" \
   "**Bold intro** with *emphasis* and \`code\`.\n\nSee [link](http://x.com).\n\n- [x] Done thing\n- [ ] Todo thing\n\n## Notes\n\nPlain text here." \
   "Plain text here."
+
+# ---- delegation-adapter.py tests ----
+
+echo ""
+echo "=== delegation-adapter.py ==="
+
+# test_adapter name expected_in_prompt expected_not_in_prompt prompt_text args...
+# Runs adapter directly and checks prompt-out content.
+# Set expected_yes to '-' to skip positive check, expected_no to '-' to skip negative check.
+test_adapter() {
+  local name="$1" expected_yes="$2" expected_no="$3" prompt_text="$4"
+  shift 4
+  local prompt_out; prompt_out=$(mktemp "$SANDBOX/prompt_out.XXXX")
+  local env_out; env_out=$(mktemp "$SANDBOX/env_out.XXXX")
+  set +e
+  python3 "$ADAPTER" \
+    --prompt "$prompt_text" \
+    --prompt-out "$prompt_out" \
+    --env-out "$env_out" \
+    "$@" >/dev/null 2>&1
+  local rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    echo "  FAIL  $name (exit $rc)"
+    failed=$((failed+1))
+    rm -f "$prompt_out" "$env_out"
+    return
+  fi
+  if [ "$expected_yes" != "-" ] && ! grep -qF -e "$expected_yes" "$prompt_out"; then
+    echo "  FAIL  $name (prompt-out missing: $expected_yes)"
+    echo "        prompt_out: $(head -c 400 "$prompt_out")"
+    failed=$((failed+1))
+  elif [ "$expected_no" != "-" ] && grep -qF -e "$expected_no" "$prompt_out"; then
+    echo "  FAIL  $name (prompt-out unexpectedly contains: $expected_no)"
+    echo "        prompt_out: $(head -c 400 "$prompt_out")"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+  rm -f "$prompt_out" "$env_out"
+}
+
+# Generate a long prompt that previously exceeded the old compact limit.
+LONG_ADAPTER_PROMPT=$(python3 -c "
+head = 'fix critical head start CRITICAL_HEAD_MARKER'
+middle = ' CRITICAL_MIDDLE_MARKER '
+tail = 'critical tail end CRITICAL_TAIL_END_MARKER'
+filler = ' x' * 1000
+print(head + filler + middle + filler + tail)
+")
+
+test_adapter \
+  "adapter preserves long prompt head critical text" \
+  "CRITICAL_HEAD_MARKER" "-" \
+  "$LONG_ADAPTER_PROMPT" \
+  --model "flash" --model-explicit "1" \
+  --effort "medium" --effort-explicit "1" \
+  --permission-mode "bypassPermissions" --permission-explicit "1"
+
+test_adapter \
+  "adapter preserves long prompt middle critical text" \
+  "CRITICAL_MIDDLE_MARKER" "-" \
+  "$LONG_ADAPTER_PROMPT" \
+  --model "flash" --model-explicit "1" \
+  --effort "medium" --effort-explicit "1" \
+  --permission-mode "bypassPermissions" --permission-explicit "1"
+
+test_adapter \
+  "adapter preserves long prompt tail critical text" \
+  "CRITICAL_TAIL_END_MARKER" "-" \
+  "$LONG_ADAPTER_PROMPT" \
+  --model "flash" --model-explicit "1" \
+  --effort "medium" --effort-explicit "1" \
+  --permission-mode "bypassPermissions" --permission-explicit "1"
+
+test_adapter \
+  "adapter does not truncate long original request" \
+  "-" "truncated" \
+  "$LONG_ADAPTER_PROMPT" \
+  --model "flash" --model-explicit "1" \
+  --effort "medium" --effort-explicit "1" \
+  --permission-mode "bypassPermissions" --permission-explicit "1"
+
+# Short prompt should remain unchanged (no truncation)
+SHORT_ADAPTER_PROMPT="fix a typo in the readme END_CRITICAL"
+test_adapter \
+  "adapter keeps short prompt unchanged" \
+  "END_CRITICAL" "truncated" \
+  "$SHORT_ADAPTER_PROMPT" \
+  --model "flash" --model-explicit "1" \
+  --effort "medium" --effort-explicit "1" \
+  --permission-mode "bypassPermissions" --permission-explicit "1"
+
+# ---- aggregate-profile-log.py tests ----
+
+echo ""
+echo "=== aggregate-profile-log.py ==="
+
+# test_aggregator name expected_exit expected_out_substr jsonl_content [extra_args...]
+# Creates a temp JSONL from content (one record per line via \n), runs the aggregator.
+test_aggregator() {
+  local name="$1" expected_exit="$2" expected_out="$3" jsonl_content="$4"
+  shift 4
+  local jsonl_file; jsonl_file=$(mktemp "$SANDBOX/agg.XXXX")
+  printf '%s\n' "$jsonl_content" > "$jsonl_file"
+  local outfile; outfile=$(mktemp "$SANDBOX/agg_out.XXXX")
+  set +e
+  python3 "$AGGREGATOR" "$jsonl_file" "$@" > "$outfile" 2>/dev/null
+  local rc=$?
+  set -e
+  if [ "$rc" -ne "$expected_exit" ]; then
+    echo "  FAIL  $name (exit $rc, expected $expected_exit)"
+    failed=$((failed+1))
+  elif [ -n "$expected_out" ] && ! grep -qF -e "$expected_out" "$outfile"; then
+    echo "  FAIL  $name (output missing: $expected_out)"
+    echo "        output: $(cat "$outfile")"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+  rm -f "$jsonl_file" "$outfile"
+}
+
+# Normal records with full fields
+test_aggregator "aggregator normal records" 0 "Records: 2" \
+  '{"isError":false,"model":"claude-sonnet-4-6","effort":"medium","taskType":"code_edit","mcpMode":"all","terminalReason":"completed","usage":{"input_tokens":500,"cache_read_input_tokens":200,"output_tokens":300},"totalCostUsd":0.05,"originalPromptChars":100,"preparedPromptChars":80,"promptReductionPct":20}
+{"isError":false,"model":"claude-sonnet-4-6","effort":"low","taskType":"read_only_scan","mcpMode":"none","terminalReason":"completed","usage":{"input_tokens":100,"cache_read_input_tokens":0,"output_tokens":50},"totalCostUsd":0.01,"originalPromptChars":50,"preparedPromptChars":45,"promptReductionPct":10}'
+
+test_aggregator "aggregator shows success/error counts" 0 "Success: 2  Error: 0" \
+  '{"isError":false}
+{"isError":false}'
+
+test_aggregator "aggregator totals tokens" 0 "total=600" \
+  '{"usage":{"input_tokens":100,"output_tokens":50}}
+{"usage":{"input_tokens":500,"output_tokens":300}}'
+
+test_aggregator "aggregator shows cache hit ratio" 0 "Cache hit ratio:" \
+  '{"usage":{"input_tokens":100,"cache_read_input_tokens":50,"output_tokens":30}}
+{"usage":{"input_tokens":200,"cache_read_input_tokens":150,"output_tokens":80}}'
+
+test_aggregator "aggregator shows cost total" 0 "Total: \$0.0600" \
+  '{"totalCostUsd":0.05}
+{"totalCostUsd":0.01}'
+
+test_aggregator "aggregator shows prompt chars" 0 "Prompt chars:" \
+  '{"originalPromptChars":100,"preparedPromptChars":80}
+{"originalPromptChars":50,"preparedPromptChars":45}'
+
+# Missing usage fields
+test_aggregator "aggregator handles missing usage fields" 0 "Records: 2" \
+  '{"isError":false,"usage":{}}
+{"isError":false,"usage":{"input_tokens":100}}'
+
+# Error records
+test_aggregator "aggregator counts errors" 0 "Error: 1" \
+  '{"isError":true}
+{"isError":false}'
+
+# Empty file
+test_aggregator "aggregator empty file" 0 "No records in profile log." ""
+
+# JSON output
+test_aggregator "aggregator json output" 0 '"total_records": 2' \
+  '{"isError":false}
+{"isError":true}' --json
+
+test_aggregator "aggregator json success/error" 0 '"success_count": 1' \
+  '{"isError":false}
+{"isError":true}' --json
+
+# Distribution output
+test_aggregator "aggregator shows model distribution" 0 "Model:" \
+  '{"model":"claude-sonnet-4-6"}
+{"model":"claude-sonnet-4-6"}
+{"model":"gpt-4"}'
+
+test_aggregator "aggregator shows effort distribution" 0 "Effort:" \
+  '{"effort":"low"}
+{"effort":"high"}'
+
+# Missing file
+test_aggregator_no_file() {
+  local outfile; outfile=$(mktemp "$SANDBOX/agg_out.XXXX")
+  set +e
+  python3 "$AGGREGATOR" "/nonexistent/path.jsonl" > "$outfile" 2>/dev/null
+  local rc=$?
+  set -e
+  if [ "$rc" -ne 1 ]; then
+    echo "  FAIL  aggregator missing file (exit $rc, expected 1)"
+    failed=$((failed+1))
+  else
+    echo "  PASS  aggregator missing file"
+    passed=$((passed+1))
+  fi
+  rm -f "$outfile"
+}
+test_aggregator_no_file
 
 # ---- summary ----
 

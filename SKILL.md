@@ -46,7 +46,7 @@ Then delegate via:
 "$(resolve_delegator)" "$PROMPT"
 ```
 
-By default the wrapper classifies the task and chooses model, effort, permission mode, and prompt shape. Unknown tasks keep the safe legacy defaults: `deepseek-v4-pro[1m]`, `max` effort, `bypassPermissions`, and compact `quiet` output. Adaptive reasoning is controlled by `--effort`; thinking tokens are only set when `CLAUDE_DELEGATOR_THINKING_TOKENS` is explicitly provided. The wrapper also disables Claude Code's built-in subagent tool by default and emits a quiet-mode heartbeat so long delegations do not look stuck.
+By default the wrapper classifies the task and chooses model, effort, permission mode, and prompt shape. Unknown tasks keep the safe legacy defaults: `deepseek-v4-pro[1m]`, `max` effort, `bypassPermissions`, and compact `quiet` output. Adaptive reasoning is controlled by `--effort`; thinking tokens are only set when `CLAUDE_DELEGATOR_THINKING_TOKENS` is explicitly provided. The wrapper also disables Claude Code's built-in subagent tool by default and emits a quiet-mode heartbeat so long delegations do not look stuck. The wrapper does not shorten the original request sent to Claude Code; token savings should come from compacting Claude Code's output back to the orchestrator, not from dropping executor context.
 
 All examples below use `resolve_delegator`. The resolver checks:
 1. `CLAUDE_DELEGATOR_DIR` (explicit override)
@@ -196,18 +196,18 @@ CLAUDE_DELEGATOR_PROFILE_LOG=logs/delegation-profile.jsonl \
 
 ### Context Envelope and Templates
 
-For known task types, the wrapper compresses the prompt into a task-specific envelope before calling Claude Code. Current templates cover:
+For known task types, the wrapper wraps the full original prompt in a task-specific envelope before calling Claude Code. Current templates cover:
 
 - `read_only_scan`
 - `code_edit`
 - `jira_operation`
 - `architecture_review`
 
-Each template preserves the original request excerpt, task goal, allowed scope, constraints, and verification expectations. Unknown task types fall back to the original uncompressed prompt. Use `--full-context` or `CLAUDE_DELEGATOR_CONTEXT_MODE=full` when debugging prompt adaptation.
+Each template preserves the full original request, task goal, allowed scope, constraints, and verification expectations. Unknown task types fall back to the original prompt. Use `--full-context` or `CLAUDE_DELEGATOR_CONTEXT_MODE=full` when debugging prompt adaptation.
 
 ### Profiling
 
-Quiet output includes model, effort, permission mode, MCP mode, class, task type, context budget, prompt template, prompt character counts, usage tokens, cache-read tokens, cache-hit ratio when available, cost, and terminal reason. Set `CLAUDE_DELEGATOR_PROFILE_LOG` to append the same non-secret metadata to JSONL for trend analysis.
+Quiet output includes model, effort, permission mode, MCP mode, class, task type, context budget, prompt template, prompt character counts, usage tokens, cache-read tokens, cache-hit ratio when available, cost, and terminal reason. Prompt reduction is expected to be zero for normal templated prompts because the original request is preserved. Set `CLAUDE_DELEGATOR_PROFILE_LOG` to append the same non-secret metadata to JSONL for trend analysis. The bundled `scripts/aggregate-profile-log.py` reads these JSONL records and outputs a concise aggregate summary (plain text by default, `--json` for machine-readable).
 
 ## Prompt Requirements
 

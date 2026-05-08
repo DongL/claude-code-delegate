@@ -18,8 +18,9 @@ This skill/toolkit lets an orchestrator own the planning and review phases while
 |------|---------|
 | `SKILL.md` | Skill definition — the contract that drives orchestrator behavior |
 | `scripts/run-claude-code.sh` | Wrapper that invokes Claude Code with consistent flags |
-| `scripts/delegation-adapter.py` | Classifies tasks, builds compact prompt templates, and emits profiling metadata |
+| `scripts/delegation-adapter.py` | Classifies tasks, wraps full prompts in task templates, and emits profiling metadata |
 | `scripts/compact-claude-stream.py` | Compacts JSON stream output into a readable final report |
+| `scripts/aggregate-profile-log.py` | Aggregates CLAUDE_DELEGATOR_PROFILE_LOG JSONL into a summary |
 | `scripts/jira-safe-text.py` | Strips Markdown for Jira MCP plain-text comments |
 | `tests/run_tests.sh` | Test runner |
 | `docs/jira-workflow.md` | Jira-specific delegation conventions |
@@ -133,9 +134,28 @@ When consumed by an orchestrator, SKILL.md provides a `resolve_delegator` helper
 
 MCP mode defaults to `all`, which preserves Claude Code's normal MCP discovery. `--mcp none` uses a strict empty MCP config, while `--mcp jira`, `--mcp linear`, and `--mcp sequential-thinking` load only that server from `.mcp.json` or `CLAUDE_DELEGATOR_MCP_CONFIG_PATH`.
 
-The wrapper classifies tasks before invocation. Tiny read-only checks use flash/low effort/minimal context, routine edits and Jira operations use flash/medium effort, debugging uses pro/high effort, architecture work uses pro/max effort, and unknown prompts fall back to the original full prompt with pro/max. Compact output shows the selected class, task type, context budget, prompt template, token usage, cost, and optional JSONL profiling metadata.
+The wrapper classifies tasks before invocation. Tiny read-only checks use flash/low effort/minimal context, routine edits and Jira operations use flash/medium effort, debugging uses pro/high effort, architecture work uses pro/max effort, and unknown prompts fall back to the original full prompt with pro/max. Known task templates preserve the full original request; the wrapper does not truncate executor context to save Claude Code-side tokens. Compact output shows the selected class, task type, context budget, prompt template, token usage, cost, and optional JSONL profiling metadata.
 
 Subagents are disabled by default via `--disallowedTools Task Agent` so a delegated executor does not silently spawn another local agent while quiet mode buffers output. Quiet mode writes a heartbeat to stderr immediately and every 30 seconds; set `CLAUDE_DELEGATOR_HEARTBEAT_SECONDS=0` to disable it.
+
+## Profiling Analysis
+
+Set `CLAUDE_DELEGATOR_PROFILE_LOG` to append profiling metadata to a JSONL file after each delegation. Each record contains model, effort, task type, token usage, cache hit data, cost, and prompt character counts. The bundled `scripts/aggregate-profile-log.py` reads these logs and produces a concise aggregate summary:
+
+```bash
+# Enable profiling
+export CLAUDE_DELEGATOR_PROFILE_LOG=logs/delegation-profile.jsonl
+./scripts/run-claude-code.sh --flash "your prompt here"
+
+# Aggregate analysis (plain text, default)
+python3 scripts/aggregate-profile-log.py "$CLAUDE_DELEGATOR_PROFILE_LOG"
+
+# Machine-readable JSON output
+python3 scripts/aggregate-profile-log.py --json "$CLAUDE_DELEGATOR_PROFILE_LOG"
+
+# Or pass the path directly
+python3 scripts/aggregate-profile-log.py logs/delegation-profile.jsonl
+```
 
 ## Requirements
 

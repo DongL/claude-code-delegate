@@ -79,18 +79,11 @@ def classify_prompt(prompt: str) -> Classification:
     return Classification("default", "unknown", PRO_MODEL, "max", "bypassPermissions", "full", False)
 
 
-def _compact_original(prompt: str, limit: int = 1800) -> str:
-    stripped = prompt.strip()
-    if len(stripped) <= limit:
-        return stripped
-    return f"{stripped[:limit].rstrip()}\n...[truncated from {len(stripped)} chars]"
-
-
 def build_prepared_prompt(prompt: str, classification: Classification, context_mode: str) -> tuple[str, str]:
     if context_mode == "full" or not classification.use_template:
         return prompt, "full"
 
-    original = _compact_original(prompt)
+    original = prompt.strip()
     if classification.task_type == "read_only_scan":
         return (
             "Task Template: read-only scan\n"
