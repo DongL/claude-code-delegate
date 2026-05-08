@@ -30,6 +30,10 @@ chmod +x "$SANDBOX/claude"
 
 export PATH="$SANDBOX:$PATH"
 
+# Unset profile log to prevent test runs from polluting real profiling data.
+# The profile-logging test case sets its own CLAUDE_DELEGATOR_PROFILE_LOG to a sandbox path.
+unset CLAUDE_DELEGATOR_PROFILE_LOG
+
 passed=0
 failed=0
 
