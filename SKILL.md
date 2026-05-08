@@ -21,7 +21,9 @@ Required loop:
 
 ## Invocation
 
-Always invoke Claude Code through the bundled wrapper. Set `CLAUDE_DELEGATOR_DIR` to the project root (the directory containing `scripts/`):
+If this skill is loaded via Codex (symlinked in `~/.codex/skills/`), Codex reads this file and follows the contract. Before invoking, ensure `CLAUDE_DELEGATOR_DIR` is set — see [README Quick Start](README.md#quick-start) for setup.
+
+Always invoke Claude Code through the bundled wrapper:
 
 ```bash
 CLAUDE_DELEGATOR_DIR=/path/to/claude-code-delegator

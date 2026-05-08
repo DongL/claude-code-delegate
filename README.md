@@ -4,7 +4,7 @@ Delegate implementation plans from an orchestrator (Codex, Cursor, or another AI
 
 ## Overview
 
-This skill/toolkit lets an orchestrator own the planning and review phases while Claude Code handles implementation. The workflow is:
+This skill/toolkit lets an orchestrator own the planning and review phases while Claude Code handles implementation. Use it as a [Codex skill](#as-a-codex-skill) (symlink into `~/.codex/skills/`) or as a [standalone orchestrator](#as-a-standalone-orchestrator) via the bundled wrapper. The workflow is:
 
 1. **Plan** — Orchestrator reads context and produces a concrete plan.
 2. **Execute** — Orchestrator invokes Claude Code via the bundled wrapper to execute the plan.
@@ -44,7 +44,29 @@ bash tests/run_tests.sh
 "$CLAUDE_DELEGATOR_DIR/scripts/run-claude-code.sh" --flash "hello from delegator"
 ```
 
-## Usage
+## Usage Modes
+
+### As a Codex skill
+
+Symlink the project into your Codex skills directory so Codex discovers `SKILL.md` and can invoke the delegation loop:
+
+```bash
+ln -sf "$CLAUDE_DELEGATOR_DIR" ~/.codex/skills/claude-code-delegator
+```
+
+Then use `/claude-code-delegator` in Codex to trigger the plan-execute-review workflow. Codex reads `SKILL.md`, authors a plan, delegates execution to Claude Code via the wrapper, and reviews the diff.
+
+### As a standalone orchestrator
+
+Any AI or human can act as the orchestrator by reading `SKILL.md` and invoking the wrapper directly:
+
+```bash
+"$CLAUDE_DELEGATOR_DIR/scripts/run-claude-code.sh" --flash "implement this feature"
+```
+
+The orchestrator is responsible for the loop: plan, delegate, review, correct, report. `SKILL.md` serves as the contract defining each step.
+
+## CLI Usage
 
 ```bash
 # Default (pro model, quiet output)
