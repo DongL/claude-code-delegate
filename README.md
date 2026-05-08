@@ -1,4 +1,4 @@
-# Claude Code Delegator
+# Claude Code Delegate
 
 Delegate implementation plans from an orchestrator (Codex, Cursor, or another AI) to Claude Code for execution, then review the resulting diff — all in a plan-execute-review loop.
 
@@ -27,15 +27,15 @@ This skill/toolkit lets an orchestrator own the planning and review phases while
 
 ```bash
 # 1. Clone
-git clone https://github.com/DongL/claude-code-delegator.git
-cd claude-code-delegator
+git clone https://github.com/DongL/claude-code-delegate.git
+cd claude-code-delegate
 
 # 2. Prerequisites: Claude Code installed and python3 available
 claude --version
 python3 --version
 
 # 3. (Recommended) Symlink into your Codex skill directory
-ln -sf "$PWD" ~/.codex/skills/claude-code-delegator
+ln -sf "$PWD" ~/.codex/skills/claude-code-delegate
 
 # 4. Run the test suite to verify everything works
 bash tests/run_tests.sh
@@ -52,17 +52,17 @@ Symlink the project into a Codex skill directory so Codex discovers `SKILL.md` a
 
 ```bash
 # Current Codex skill path (preferred)
-ln -sf "$CLAUDE_DELEGATOR_DIR" ~/.agents/skills/claude-code-delegator
+ln -sf "$CLAUDE_DELEGATOR_DIR" ~/.agents/skills/claude-code-delegate
 
 # Legacy Codex skill path
-ln -sf "$CLAUDE_DELEGATOR_DIR" ~/.codex/skills/claude-code-delegator
+ln -sf "$CLAUDE_DELEGATOR_DIR" ~/.codex/skills/claude-code-delegate
 ```
 
-Then use `/claude-code-delegator` in Codex to trigger the plan-execute-review workflow. Codex reads `SKILL.md` which includes a resolver that finds the wrapper script in any of these locations:
+Then use `/claude-code-delegate` in Codex to trigger the plan-execute-review workflow. Codex reads `SKILL.md` which includes a resolver that finds the wrapper script in any of these locations:
 
 1. `$CLAUDE_DELEGATOR_DIR` (explicit override)
-2. `$HOME/.agents/skills/claude-code-delegator` (current Codex path)
-3. `$HOME/.codex/skills/claude-code-delegator` (legacy Codex path)
+2. `$HOME/.agents/skills/claude-code-delegate` (current Codex path)
+3. `$HOME/.codex/skills/claude-code-delegate` (legacy Codex path)
 
 No shell-profile setup required — the resolver makes first-run work without env vars.
 
@@ -77,7 +77,7 @@ Any AI or human can act as the orchestrator by reading `SKILL.md` and invoking t
 Or with an explicit project root (useful when running from a different working directory):
 
 ```bash
-CLAUDE_DELEGATOR_DIR=/path/to/claude-code-delegator \
+CLAUDE_DELEGATOR_DIR=/path/to/claude-code-delegate \
   ./scripts/run-claude-code.sh --flash "implement this feature"
 ```
 

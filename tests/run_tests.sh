@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Test runner for claude-code-delegator scripts.
+# Test runner for claude-code-delegate scripts.
 # No external packages required — uses fake claude on PATH.
 set -euo pipefail
 

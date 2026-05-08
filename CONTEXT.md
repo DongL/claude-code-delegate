@@ -1,4 +1,4 @@
-# Claude Code Delegator Glossary
+# Claude Code Delegate Glossary
 
 ## Orchestrator
 
@@ -38,4 +38,4 @@ The practice of repeating correction passes until the diff is correct, rather th
 
 ## Script Resolver
 
-The `resolve_delegator` function in SKILL.md that locates the wrapper script at runtime. It checks three locations in order: `CLAUDE_DELEGATOR_DIR` (explicit override), `~/.agents/skills/claude-code-delegator` (current Codex path), and `~/.codex/skills/claude-code-delegator` (legacy). This avoids requiring environment variable setup for first-time Codex users.
+The `resolve_delegator` function in SKILL.md that locates the wrapper script at runtime. It checks three locations in order: `CLAUDE_DELEGATOR_DIR` (explicit override), `~/.agents/skills/claude-code-delegate` (current Codex path), and `~/.codex/skills/claude-code-delegate` (legacy). This avoids requiring environment variable setup for first-time Codex users.

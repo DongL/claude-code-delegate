@@ -1,9 +1,9 @@
 ---
-name: claude-code-delegator
+name: claude-code-delegate
 description: Delegate an orchestrator-authored implementation plan to Claude Code, then review the resulting diff. Use when the user wants an orchestrator (e.g., Codex) to plan while Claude Code executes, or wants a plan-execute-review loop.
 ---
 
-# Claude Code Delegator
+# Claude Code Delegate
 
 ## Contract
 
@@ -27,15 +27,15 @@ Always invoke Claude Code through the bundled wrapper. The orchestrator resolves
 resolve_delegator() {
   for dir in \
     "${CLAUDE_DELEGATOR_DIR:-}" \
-    "$HOME/.agents/skills/claude-code-delegator" \
-    "$HOME/.codex/skills/claude-code-delegator"
+    "$HOME/.agents/skills/claude-code-delegate" \
+    "$HOME/.codex/skills/claude-code-delegate"
   do
     if [ -n "$dir" ] && [ -x "$dir/scripts/run-claude-code.sh" ]; then
       echo "$dir/scripts/run-claude-code.sh"
       return 0
     fi
   done
-  echo "claude-code-delegator not found. Set CLAUDE_DELEGATOR_DIR or install the skill." >&2
+  echo "claude-code-delegate not found. Set CLAUDE_DELEGATOR_DIR or install the skill." >&2
   return 1
 }
 ```
@@ -50,8 +50,8 @@ By default the wrapper uses `deepseek-v4-pro[1m]`, `max` effort, `acceptEdits`, 
 
 All examples below use `resolve_delegator`. The resolver checks:
 1. `CLAUDE_DELEGATOR_DIR` (explicit override)
-2. `$HOME/.agents/skills/claude-code-delegator` (current Codex skill path)
-3. `$HOME/.codex/skills/claude-code-delegator` (legacy Codex skill path)
+2. `$HOME/.agents/skills/claude-code-delegate` (current Codex skill path)
+3. `$HOME/.codex/skills/claude-code-delegate` (legacy Codex skill path)
 
 Prefer the bundled wrapper to avoid flag drift.
 

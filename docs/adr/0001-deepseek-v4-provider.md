@@ -1,6 +1,6 @@
 # Use DeepSeek V4 via cc switch as the default provider
 
-The Claude Code Delegator defaults to DeepSeek V4 models (`deepseek-v4-pro[1m]` for primary reasoning, `deepseek-v4-flash` for subagent/fast tasks) routed through Claude Code via `cc switch`. This decision is driven by cost and availability: DeepSeek V4 provides competitive reasoning capability at significantly lower cost than Anthropic direct API, and `cc switch` abstracts provider configuration so the wrapper doesn't need to manage provider-specific credentials or base URLs.
+The Claude Code Delegate defaults to DeepSeek V4 models (`deepseek-v4-pro[1m]` for primary reasoning, `deepseek-v4-flash` for subagent/fast tasks) routed through Claude Code via `cc switch`. This decision is driven by cost and availability: DeepSeek V4 provides competitive reasoning capability at significantly lower cost than Anthropic direct API, and `cc switch` abstracts provider configuration so the wrapper doesn't need to manage provider-specific credentials or base URLs.
 
 ## Status
 
