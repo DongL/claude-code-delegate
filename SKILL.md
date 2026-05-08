@@ -46,7 +46,7 @@ Then delegate via:
 "$(resolve_delegator)" "$PROMPT"
 ```
 
-By default the wrapper uses `deepseek-v4-pro[1m]`, `max` effort, `acceptEdits`, and compact `quiet` output for non-interactive plan execution. Adaptive reasoning is controlled by `--effort` (default `max`); thinking tokens are only set when `CLAUDE_DELEGATOR_THINKING_TOKENS` is explicitly provided.
+By default the wrapper classifies the task and chooses model, effort, permission mode, and prompt shape. Unknown tasks keep the safe legacy defaults: `deepseek-v4-pro[1m]`, `max` effort, `bypassPermissions`, and compact `quiet` output. Adaptive reasoning is controlled by `--effort`; thinking tokens are only set when `CLAUDE_DELEGATOR_THINKING_TOKENS` is explicitly provided.
 
 All examples below use `resolve_delegator`. The resolver checks:
 1. `CLAUDE_DELEGATOR_DIR` (explicit override)
@@ -61,7 +61,7 @@ Do not delegate tiny local inspection tasks unless the user explicitly asks to u
 
 ### Model
 
-Two models available. Default is **pro** for complex plans; use **flash** for simple/high-throughput tasks.
+Two models available. The wrapper classifies the prompt first: tiny read-only and routine edit tasks route to **flash**, while debugging and architecture-heavy tasks route to **pro**. Unknown prompts fall back to **pro**.
 
 Prefer the wrapper flags when switching models for one invocation:
 
@@ -99,16 +99,74 @@ Use `--stream` only when debugging Claude Code itself, diagnosing permission han
 
 ### Permission Mode
 
-Default is `acceptEdits` (auto-accepts file edits, prompts on tool commands). Use `--bypass` for fully non-interactive delegation:
+Default is `bypassPermissions` (fully non-interactive — no permission prompts). Use `--interactive` for safer or debug sessions where you want to review tool commands before they execute:
 
 ```bash
+# Default: fully non-interactive, no permission prompts
+"$(resolve_delegator)" "$PROMPT"
+
+# Interactive: auto-accepts file edits, prompts on tool commands
+"$(resolve_delegator)" --interactive "$PROMPT"
+
+# Explicit bypass (backwards-compatible alias for default)
 "$(resolve_delegator)" --bypass "$PROMPT"
 ```
 
-Or via environment variable:
+Or via environment variable (overrides default when no flag is supplied; explicit flags win when provided):
 
 ```bash
-CLAUDE_DELEGATOR_PERMISSION_MODE=bypassPermissions \
+CLAUDE_DELEGATOR_PERMISSION_MODE=acceptEdits \
+  "$(resolve_delegator)" "$PROMPT"
+```
+
+### Effort and Classification
+
+The wrapper uses deterministic task classification when no explicit model/effort/permission override is supplied:
+
+| Class | Typical task | Model | Effort | Context |
+|-------|--------------|-------|--------|---------|
+| `tiny` | read-only checks, counts, lists | flash | low | minimal |
+| `small` | routine edits or Jira operations | flash | medium | standard |
+| `medium` | debugging, traceback, regression work | pro | high | standard |
+| `large` | architecture, refactor, migration, ADR work | pro | max | expanded |
+| `default` | unknown/ambiguous task | pro | max | full prompt |
+
+Explicit flags and env vars override classification:
+
+```bash
+"$(resolve_delegator)" --flash --effort medium "$PROMPT"
+
+CLAUDE_DELEGATOR_EFFORT=max \
+  "$(resolve_delegator)" "$PROMPT"
+```
+
+The compact output reports the selected class, task type, context budget, prompt mode, and template.
+
+### MCP Mode
+
+Default MCP mode is `all`: Claude Code uses its normal project/user MCP configuration. Use selective MCP loading when a task only needs one server, or when unrelated MCP servers slow startup and inflate context.
+
+```bash
+# Default: use normal Claude Code MCP discovery
+"$(resolve_delegator)" "$PROMPT"
+
+# Disable all project/user MCP servers
+"$(resolve_delegator)" --mcp none "$PROMPT"
+
+# Load only one MCP server from .mcp.json
+"$(resolve_delegator)" --mcp jira "$PROMPT"
+"$(resolve_delegator)" --mcp linear "$PROMPT"
+"$(resolve_delegator)" --mcp sequential-thinking "$PROMPT"
+```
+
+Supported modes are `all`, `none`, `jira`, `linear`, and `sequential-thinking`. `none` uses Claude Code's `--strict-mcp-config` with an empty MCP config. Specific server modes use `--strict-mcp-config` with a generated one-server config read from `.mcp.json`, or from `CLAUDE_DELEGATOR_MCP_CONFIG_PATH` when set.
+
+Built-in Claude Code file and shell tools are not MCP servers, so `--mcp none` still allows normal implementation work. It only suppresses project/user MCP server loading.
+
+Environment variable override:
+
+```bash
+CLAUDE_DELEGATOR_MCP_MODE=jira \
   "$(resolve_delegator)" "$PROMPT"
 ```
 
@@ -118,8 +176,26 @@ CLAUDE_DELEGATOR_PERMISSION_MODE=bypassPermissions \
 CLAUDE_DELEGATOR_EFFORT=medium \           # default: max
 CLAUDE_DELEGATOR_THINKING_TOKENS=0 \       # unset by default (--effort controls reasoning)
 CLAUDE_DELEGATOR_OUTPUT_MODE=stream \      # default: quiet
+CLAUDE_DELEGATOR_MCP_MODE=none \           # default: all
+CLAUDE_DELEGATOR_CONTEXT_MODE=full \       # default: auto
+CLAUDE_DELEGATOR_PROFILE_LOG=logs/delegation-profile.jsonl \
 "$(resolve_delegator)" "$PROMPT"
 ```
+
+### Context Envelope and Templates
+
+For known task types, the wrapper compresses the prompt into a task-specific envelope before calling Claude Code. Current templates cover:
+
+- `read_only_scan`
+- `code_edit`
+- `jira_operation`
+- `architecture_review`
+
+Each template preserves the original request excerpt, task goal, allowed scope, constraints, and verification expectations. Unknown task types fall back to the original uncompressed prompt. Use `--full-context` or `CLAUDE_DELEGATOR_CONTEXT_MODE=full` when debugging prompt adaptation.
+
+### Profiling
+
+Quiet output includes model, effort, permission mode, MCP mode, class, task type, context budget, prompt template, prompt character counts, usage tokens, cache-read tokens, cache-hit ratio when available, cost, and terminal reason. Set `CLAUDE_DELEGATOR_PROFILE_LOG` to append the same non-secret metadata to JSONL for trend analysis.
 
 ## Prompt Requirements
 
@@ -156,6 +232,6 @@ When delegating Jira or issue tracker work, apply Jira-safe plain text formattin
 
 ## Known Failure Mode
 
-Plain `claude -p` with default permissions can appear to hang because Claude Code is waiting on permission requests. The wrapper default `acceptEdits` only auto-accepts file edits and can still block Bash/tool commands such as `.venv/bin/python ...`; use the `--bypass` flag (or `CLAUDE_DELEGATOR_PERMISSION_MODE=bypassPermissions`) for fully non-interactive delegation.
+Plain `claude -p` with default permissions can appear to hang because Claude Code is waiting on permission requests. The wrapper default `bypassPermissions` avoids this entirely by suppressing all permission prompts. For debugging sessions where you want to observe tool commands before they run, use the `--interactive` flag (which sets `acceptEdits` — auto-accepts file edits but prompts on Bash/tool commands).
 
 Provider or org/auth access errors usually mean Claude Code is not currently switched to a provider that can serve `deepseek-v4-pro[1m]`, or the provider token in `~/.claude/settings.json` is malformed/expired. Confirm the configured `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and model values without printing secret token contents.

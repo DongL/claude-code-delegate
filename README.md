@@ -18,6 +18,7 @@ This skill/toolkit lets an orchestrator own the planning and review phases while
 |------|---------|
 | `SKILL.md` | Skill definition — the contract that drives orchestrator behavior |
 | `scripts/run-claude-code.sh` | Wrapper that invokes Claude Code with consistent flags |
+| `scripts/delegation-adapter.py` | Classifies tasks, builds compact prompt templates, and emits profiling metadata |
 | `scripts/compact-claude-stream.py` | Compacts JSON stream output into a readable final report |
 | `scripts/jira-safe-text.py` | Strips Markdown for Jira MCP plain-text comments |
 | `tests/run_tests.sh` | Test runner |
@@ -92,20 +93,42 @@ The orchestrator is responsible for the loop: plan, delegate, review, correct, r
 # Flash model
 ./scripts/run-claude-code.sh --flash "your prompt here"
 
+# Override classified effort for one invocation
+./scripts/run-claude-code.sh --effort max "your prompt here"
+
 # Stream output (for debugging)
 ./scripts/run-claude-code.sh --stream "your prompt here"
 
-# Bypass permission prompts (fully non-interactive)
+# Bypass permission prompts (fully non-interactive, default behavior)
 ./scripts/run-claude-code.sh --bypass "your prompt here"
+
+# Interactive mode (auto-accept edits, prompt on tool commands)
+./scripts/run-claude-code.sh --interactive "your prompt here"
+
+# Disable project/user MCP servers for implementation-only tasks
+./scripts/run-claude-code.sh --mcp none "your prompt here"
+
+# Load only Jira MCP from .mcp.json
+./scripts/run-claude-code.sh --mcp jira "update the issue status"
+
+# Disable prompt adaptation while debugging
+./scripts/run-claude-code.sh --full-context "your prompt here"
 
 # Environment variable overrides
 CLAUDE_DELEGATOR_MODEL='deepseek-v4-flash[1m]' \
 CLAUDE_DELEGATOR_EFFORT=medium \
 CLAUDE_DELEGATOR_PERMISSION_MODE=bypassPermissions \
+CLAUDE_DELEGATOR_MCP_MODE=none \
+CLAUDE_DELEGATOR_CONTEXT_MODE=full \
+CLAUDE_DELEGATOR_PROFILE_LOG=logs/delegation-profile.jsonl \
   ./scripts/run-claude-code.sh "your prompt here"
 ```
 
 When consumed by an orchestrator, SKILL.md provides a `resolve_delegator` helper that finds the wrapper script across multiple install paths. See `SKILL.md` for the full resolver definition.
+
+MCP mode defaults to `all`, which preserves Claude Code's normal MCP discovery. `--mcp none` uses a strict empty MCP config, while `--mcp jira`, `--mcp linear`, and `--mcp sequential-thinking` load only that server from `.mcp.json` or `CLAUDE_DELEGATOR_MCP_CONFIG_PATH`.
+
+The wrapper classifies tasks before invocation. Tiny read-only checks use flash/low effort/minimal context, routine edits and Jira operations use flash/medium effort, debugging uses pro/high effort, architecture work uses pro/max effort, and unknown prompts fall back to the original full prompt with pro/max. Compact output shows the selected class, task type, context budget, prompt template, token usage, cost, and optional JSONL profiling metadata.
 
 ## Requirements
 

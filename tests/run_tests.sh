@@ -6,8 +6,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RUNNER="$SCRIPT_DIR/../scripts/run-claude-code.sh"
 COMPACT="$SCRIPT_DIR/../scripts/compact-claude-stream.py"
+ADAPTER="$SCRIPT_DIR/../scripts/delegation-adapter.py"
 
-for f in "$RUNNER" "$COMPACT"; do
+for f in "$RUNNER" "$COMPACT" "$ADAPTER"; do
   [ -f "$f" ] || { echo "ERROR: $f not found"; exit 1; }
 done
 
@@ -47,6 +48,29 @@ test_case() {
     failed=$((failed+1))
   elif [ -n "$expected_capture" ] && ! grep -qF -e "$expected_capture" "$capture"; then
     echo "  FAIL  $name (capture missing: $expected_capture)"
+    echo "        capture: $(tr '\n' '|' < "$capture")"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+  rm -f "$capture"
+}
+
+# test_case_absent name unexpected_capture_substr [args...]
+test_case_absent() {
+  local name="$1" unexpected_capture="$2"
+  shift 2
+  local capture; capture=$(mktemp "$SANDBOX/cap.XXXX")
+  set +e
+  CLAUDE_DELEGATOR_TEST_CAPTURE="$capture" "$RUNNER" "$@" >/dev/null 2>/dev/null
+  local got_exit=$?
+  set -e
+  if [ "$got_exit" -ne 0 ]; then
+    echo "  FAIL  $name (exit $got_exit, expected 0)"
+    failed=$((failed+1))
+  elif grep -qF -e "$unexpected_capture" "$capture"; then
+    echo "  FAIL  $name (unexpected capture: $unexpected_capture)"
     echo "        capture: $(tr '\n' '|' < "$capture")"
     failed=$((failed+1))
   else
@@ -101,7 +125,7 @@ echo "=== run-claude-code.sh ==="
 
 test_case "default pro model" 0 "--model deepseek-v4-pro[1m]" "test prompt"
 
-test_case "default acceptEdits" 0 "--permission-mode acceptEdits" "test prompt"
+test_case "default bypassPermissions" 0 "--permission-mode bypassPermissions" "test prompt"
 
 test_case "--flash flag" 0 "--model deepseek-v4-flash[1m]" --flash "test prompt"
 
@@ -118,8 +142,51 @@ CLAUDE_DELEGATOR_PERMISSION_MODE="bypassPermissions" \
 
 test_case "--bypass flag" 0 "--permission-mode bypassPermissions" --bypass "test prompt"
 
+test_case "--interactive flag" 0 "--permission-mode acceptEdits" --interactive "test prompt"
+
+# Explicit flag overrides env var
+CLAUDE_DELEGATOR_PERMISSION_MODE="acceptEdits" \
+  test_case "--bypass overrides env acceptEdits" 0 "--permission-mode bypassPermissions" --bypass "test prompt"
+
+CLAUDE_DELEGATOR_PERMISSION_MODE="bypassPermissions" \
+  test_case "--interactive overrides env bypassPermissions" 0 "--permission-mode acceptEdits" --interactive "test prompt"
+
 # Quiet mode (default) writes JSON to temp file, pipes through compact script
 test_case "quiet mode output-format json" 0 "--output-format json" "test prompt"
+
+test_case "tiny task routes to flash" 0 "--model deepseek-v4-flash[1m]" "check how many rows are in pattern_data"
+
+test_case "tiny task uses low effort" 0 "--effort low" "check how many rows are in pattern_data"
+
+test_case "routine edit routes to flash" 0 "--model deepseek-v4-flash[1m]" "fix the README typo"
+
+test_case "routine edit uses medium effort" 0 "--effort medium" "fix the README typo"
+
+test_case "debug task routes to pro" 0 "--model deepseek-v4-pro[1m]" "diagnose this traceback failure"
+
+test_case "debug task uses high effort" 0 "--effort high" "diagnose this traceback failure"
+
+test_case "architecture task uses max effort" 0 "--effort max" "architecture refactor plan"
+
+test_case "--pro overrides tiny classification" 0 "--model deepseek-v4-pro[1m]" --pro "check how many rows are in pattern_data"
+
+test_case "--effort overrides classification" 0 "--effort max" --effort max "check how many rows are in pattern_data"
+
+test_case "--interactive overrides classified permission" 0 "--permission-mode acceptEdits" --interactive "check how many rows are in pattern_data"
+
+test_case "read-only prompt template applied" 0 "Task Template: read-only scan" "check how many rows are in pattern_data"
+
+test_case "code edit prompt template applied" 0 "Task Template: code edit" "fix the README typo"
+
+test_case "implement issue key remains code edit" 0 "Task Template: code edit" "implement ITRADE-90"
+
+test_case "jira prompt template applied" 0 "Task Template: Jira operation" "mark ITRADE-90 done in Jira"
+
+test_case "architecture prompt template applied" 0 "Task Template: architecture review" "architecture refactor plan"
+
+test_case_absent "unknown task falls back to full prompt" "Task Template:" "hello world"
+
+test_case_absent "--full-context disables template" "Task Template:" --full-context "check how many rows are in pattern_data"
 
 # Stream mode adds verbose + stream-json + include-partial-messages
 test_case "stream mode --verbose" 0 "--verbose" --stream "test prompt"
@@ -131,6 +198,33 @@ CLAUDE_DELEGATOR_OUTPUT_MODE="invalid" \
 
 CLAUDE_DELEGATOR_THINKING_TOKENS="0" \
   test_case "CLAUDE_DELEGATOR_THINKING_TOKENS export" 0 "MAX_THINKING_TOKENS:0" "test prompt"
+
+test_case_absent "default mcp all no strict config" "--strict-mcp-config" "test prompt"
+
+test_case "--mcp none strict config" 0 "--strict-mcp-config" --mcp none "test prompt"
+
+test_case "--mcp none empty config" 0 '{"mcpServers":{}}' --mcp none "test prompt"
+
+cat > "$SANDBOX/mcp.json" <<'JSON'
+{
+  "mcpServers": {
+    "jira": { "command": "node", "args": ["jira.js"] },
+    "linear": { "command": "node", "args": ["linear.js"] },
+    "sequential-thinking": { "command": "node", "args": ["seq.js"] }
+  }
+}
+JSON
+
+CLAUDE_DELEGATOR_MCP_CONFIG_PATH="$SANDBOX/mcp.json" \
+  test_case "--mcp jira strict config" 0 "--strict-mcp-config" --mcp jira "test prompt"
+
+CLAUDE_DELEGATOR_MCP_CONFIG_PATH="$SANDBOX/mcp.json" \
+  test_case "--mcp jira passes generated mcp-config" 0 "--mcp-config" --mcp jira "test prompt"
+
+CLAUDE_DELEGATOR_MCP_MODE="none" \
+  test_case "env mcp mode none" 0 "--strict-mcp-config" "test prompt"
+
+test_exit "invalid mcp mode" 2 --mcp invalid "test prompt"
 
 test_exit "no prompt exits 2" 2
 
@@ -163,11 +257,91 @@ test_compact "error result exit code 1" 1 "failed" \
 test_compact "usage in result" 0 "input_tokens=5, output_tokens=10" \
   '{"type":"result","result":"ok","usage":{"input_tokens":5,"output_tokens":10}}'
 
+test_compact "usage cache hit ratio" 0 "cache_hit_ratio=0.75" \
+  '{"type":"result","result":"ok","usage":{"input_tokens":5,"cache_read_input_tokens":15,"output_tokens":10}}'
+
 test_compact "cost in result" 0 "total_cost_usd=0.001500" \
   '{"type":"result","result":"ok","usage":{"input_tokens":5},"total_cost_usd":0.0015}'
 
 test_compact "terminal_reason" 0 "terminal_reason=completed" \
   '{"type":"result","result":"ok","terminal_reason":"completed"}'
+
+test_compact "mcp mode from init" 0 "mcpMode: none" \
+  '{"type":"system","subtype":"init","mcpMode":"none"}
+{"type":"result","result":"ok"}'
+
+test_compact "effort from init" 0 "effort: high" \
+  '{"type":"system","subtype":"init","effort":"high"}
+{"type":"result","result":"ok"}'
+
+outfile=$(mktemp "$SANDBOX/cs_out.XXXX")
+set +e
+printf '%s' '{"type":"result","result":"ok"}' | CLAUDE_DELEGATOR_OBSERVED_MCP_MODE=jira "$COMPACT" > "$outfile" 2>/dev/null
+rc=$?
+set -e
+if [ "$rc" -ne 0 ]; then
+  echo "  FAIL  mcp mode from env (exit $rc, expected 0)"
+  failed=$((failed+1))
+elif ! grep -qF -e "mcpMode: jira" "$outfile"; then
+  echo "  FAIL  mcp mode from env (output missing: mcpMode: jira)"
+  echo "        output: $(cat "$outfile")"
+  failed=$((failed+1))
+else
+  echo "  PASS  mcp mode from env"
+  passed=$((passed+1))
+fi
+rm -f "$outfile"
+
+outfile=$(mktemp "$SANDBOX/cs_out.XXXX")
+set +e
+printf '%s' '{"type":"result","result":"ok"}' | \
+  CLAUDE_DELEGATOR_OBSERVED_CLASS=tiny \
+  CLAUDE_DELEGATOR_OBSERVED_TASK_TYPE=read_only_scan \
+  CLAUDE_DELEGATOR_OBSERVED_CONTEXT_BUDGET=minimal \
+  CLAUDE_DELEGATOR_OBSERVED_PROMPT_MODE=template \
+  CLAUDE_DELEGATOR_OBSERVED_PROMPT_TEMPLATE=read_only_scan \
+  CLAUDE_DELEGATOR_ORIGINAL_PROMPT_CHARS=100 \
+  CLAUDE_DELEGATOR_PREPARED_PROMPT_CHARS=70 \
+  CLAUDE_DELEGATOR_PROMPT_REDUCTION_PCT=30 \
+  "$COMPACT" > "$outfile" 2>/dev/null
+rc=$?
+set -e
+if [ "$rc" -ne 0 ]; then
+  echo "  FAIL  profiling metadata from env (exit $rc, expected 0)"
+  failed=$((failed+1))
+elif ! grep -qF -e "class: tiny" "$outfile" || ! grep -qF -e "promptChars: original=100, prepared=70, reduction_pct=30" "$outfile"; then
+  echo "  FAIL  profiling metadata from env (output missing expected profiling lines)"
+  echo "        output: $(cat "$outfile")"
+  failed=$((failed+1))
+else
+  echo "  PASS  profiling metadata from env"
+  passed=$((passed+1))
+fi
+rm -f "$outfile"
+
+profile_log="$SANDBOX/profile.jsonl"
+outfile=$(mktemp "$SANDBOX/cs_out.XXXX")
+set +e
+printf '%s' '{"type":"result","result":"ok","usage":{"input_tokens":5},"total_cost_usd":0.1}' | \
+  CLAUDE_DELEGATOR_PROFILE_LOG="$profile_log" \
+  CLAUDE_DELEGATOR_OBSERVED_CLASS=small \
+  CLAUDE_DELEGATOR_ORIGINAL_PROMPT_CHARS=10 \
+  CLAUDE_DELEGATOR_PREPARED_PROMPT_CHARS=8 \
+  "$COMPACT" > "$outfile" 2>/dev/null
+rc=$?
+set -e
+if [ "$rc" -ne 0 ]; then
+  echo "  FAIL  profile jsonl logging (exit $rc, expected 0)"
+  failed=$((failed+1))
+elif ! grep -qF -e '"class": "small"' "$profile_log" || ! grep -qF -e '"input_tokens": 5' "$profile_log"; then
+  echo "  FAIL  profile jsonl logging (missing expected record)"
+  echo "        log: $(cat "$profile_log" 2>/dev/null || true)"
+  failed=$((failed+1))
+else
+  echo "  PASS  profile jsonl logging"
+  passed=$((passed+1))
+fi
+rm -f "$outfile"
 
 test_compact "empty input exit 1" 1 "" ""
 
