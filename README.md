@@ -114,12 +114,17 @@ The orchestrator is responsible for the loop: plan, delegate, review, correct, r
 # Disable prompt adaptation while debugging
 ./scripts/run-claude-code.sh --full-context "your prompt here"
 
+# Allow Claude Code to spawn its own subagents for this invocation
+./scripts/run-claude-code.sh --allow-subagents "your prompt here"
+
 # Environment variable overrides
 CLAUDE_DELEGATOR_MODEL='deepseek-v4-flash[1m]' \
 CLAUDE_DELEGATOR_EFFORT=medium \
 CLAUDE_DELEGATOR_PERMISSION_MODE=bypassPermissions \
 CLAUDE_DELEGATOR_MCP_MODE=none \
 CLAUDE_DELEGATOR_CONTEXT_MODE=full \
+CLAUDE_DELEGATOR_SUBAGENTS=on \
+CLAUDE_DELEGATOR_HEARTBEAT_SECONDS=15 \
 CLAUDE_DELEGATOR_PROFILE_LOG=logs/delegation-profile.jsonl \
   ./scripts/run-claude-code.sh "your prompt here"
 ```
@@ -129,6 +134,8 @@ When consumed by an orchestrator, SKILL.md provides a `resolve_delegator` helper
 MCP mode defaults to `all`, which preserves Claude Code's normal MCP discovery. `--mcp none` uses a strict empty MCP config, while `--mcp jira`, `--mcp linear`, and `--mcp sequential-thinking` load only that server from `.mcp.json` or `CLAUDE_DELEGATOR_MCP_CONFIG_PATH`.
 
 The wrapper classifies tasks before invocation. Tiny read-only checks use flash/low effort/minimal context, routine edits and Jira operations use flash/medium effort, debugging uses pro/high effort, architecture work uses pro/max effort, and unknown prompts fall back to the original full prompt with pro/max. Compact output shows the selected class, task type, context budget, prompt template, token usage, cost, and optional JSONL profiling metadata.
+
+Subagents are disabled by default via `--disallowedTools Task Agent` so a delegated executor does not silently spawn another local agent while quiet mode buffers output. Quiet mode writes a heartbeat to stderr immediately and every 30 seconds; set `CLAUDE_DELEGATOR_HEARTBEAT_SECONDS=0` to disable it.
 
 ## Requirements
 

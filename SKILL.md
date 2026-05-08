@@ -46,7 +46,7 @@ Then delegate via:
 "$(resolve_delegator)" "$PROMPT"
 ```
 
-By default the wrapper classifies the task and chooses model, effort, permission mode, and prompt shape. Unknown tasks keep the safe legacy defaults: `deepseek-v4-pro[1m]`, `max` effort, `bypassPermissions`, and compact `quiet` output. Adaptive reasoning is controlled by `--effort`; thinking tokens are only set when `CLAUDE_DELEGATOR_THINKING_TOKENS` is explicitly provided.
+By default the wrapper classifies the task and chooses model, effort, permission mode, and prompt shape. Unknown tasks keep the safe legacy defaults: `deepseek-v4-pro[1m]`, `max` effort, `bypassPermissions`, and compact `quiet` output. Adaptive reasoning is controlled by `--effort`; thinking tokens are only set when `CLAUDE_DELEGATOR_THINKING_TOKENS` is explicitly provided. The wrapper also disables Claude Code's built-in subagent tool by default and emits a quiet-mode heartbeat so long delegations do not look stuck.
 
 All examples below use `resolve_delegator`. The resolver checks:
 1. `CLAUDE_DELEGATOR_DIR` (explicit override)
@@ -142,6 +142,16 @@ CLAUDE_DELEGATOR_EFFORT=max \
 
 The compact output reports the selected class, task type, context budget, prompt mode, and template.
 
+### Subagents and Heartbeat
+
+Default delegation disables Claude Code's built-in `Task`/`Agent` subagent tool. This keeps the executor from spawning another local agent that can run for a long time while quiet mode buffers all output. Allow subagents only when the plan explicitly needs Claude Code to parallelize inside its own process:
+
+```bash
+"$(resolve_delegator)" --allow-subagents "$PROMPT"
+```
+
+Quiet mode prints progress to stderr immediately and every 30 seconds while Claude Code is still running. Set `CLAUDE_DELEGATOR_HEARTBEAT_SECONDS=0` to disable the heartbeat or another integer to change the interval.
+
 ### MCP Mode
 
 Default MCP mode is `all`: Claude Code uses its normal project/user MCP configuration. Use selective MCP loading when a task only needs one server, or when unrelated MCP servers slow startup and inflate context.
@@ -178,6 +188,8 @@ CLAUDE_DELEGATOR_THINKING_TOKENS=0 \       # unset by default (--effort controls
 CLAUDE_DELEGATOR_OUTPUT_MODE=stream \      # default: quiet
 CLAUDE_DELEGATOR_MCP_MODE=none \           # default: all
 CLAUDE_DELEGATOR_CONTEXT_MODE=full \       # default: auto
+CLAUDE_DELEGATOR_SUBAGENTS=on \            # default: off
+CLAUDE_DELEGATOR_HEARTBEAT_SECONDS=15 \    # default: 30; 0 disables
 CLAUDE_DELEGATOR_PROFILE_LOG=logs/delegation-profile.jsonl \
 "$(resolve_delegator)" "$PROMPT"
 ```

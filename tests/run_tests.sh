@@ -127,6 +127,8 @@ test_case "default pro model" 0 "--model deepseek-v4-pro[1m]" "test prompt"
 
 test_case "default bypassPermissions" 0 "--permission-mode bypassPermissions" "test prompt"
 
+test_case "default disables subagents" 0 "--disallowedTools Task Agent" "test prompt"
+
 test_case "--flash flag" 0 "--model deepseek-v4-flash[1m]" --flash "test prompt"
 
 test_case "--pro flag" 0 "--model deepseek-v4-pro[1m]" --pro "test prompt"
@@ -188,6 +190,8 @@ test_case_absent "unknown task falls back to full prompt" "Task Template:" "hell
 
 test_case_absent "--full-context disables template" "Task Template:" --full-context "check how many rows are in pattern_data"
 
+test_case_absent "--allow-subagents omits disallowedTools" "--disallowedTools" --allow-subagents "test prompt"
+
 # Stream mode adds verbose + stream-json + include-partial-messages
 test_case "stream mode --verbose" 0 "--verbose" --stream "test prompt"
 test_case "stream mode stream-json" 0 "--output-format stream-json" --stream "test prompt"
@@ -195,6 +199,12 @@ test_case "stream mode include-partial" 0 "--include-partial-messages" --stream 
 
 CLAUDE_DELEGATOR_OUTPUT_MODE="invalid" \
   test_exit "invalid output mode" 2 "test prompt"
+
+CLAUDE_DELEGATOR_SUBAGENTS="invalid" \
+  test_exit "invalid subagent mode" 2 "test prompt"
+
+CLAUDE_DELEGATOR_HEARTBEAT_SECONDS="abc" \
+  test_exit "invalid heartbeat seconds" 2 "test prompt"
 
 CLAUDE_DELEGATOR_THINKING_TOKENS="0" \
   test_case "CLAUDE_DELEGATOR_THINKING_TOKENS export" 0 "MAX_THINKING_TOKENS:0" "test prompt"

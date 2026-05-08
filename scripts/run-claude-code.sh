@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
-  echo "Usage: $0 [--pro|--flash] [--effort VALUE] [--quiet|--stream] [--bypass|--interactive] [--mcp MODE] [--full-context] PROMPT [CLAUDE_ARGS...]" >&2
+  echo "Usage: $0 [--pro|--flash] [--effort VALUE] [--quiet|--stream] [--bypass|--interactive] [--mcp MODE] [--full-context] [--allow-subagents] PROMPT [CLAUDE_ARGS...]" >&2
   exit 2
 fi
 
@@ -17,6 +17,8 @@ fi
 output_mode="${CLAUDE_DELEGATOR_OUTPUT_MODE:-quiet}"
 mcp_mode="${CLAUDE_DELEGATOR_MCP_MODE:-all}"
 context_mode="${CLAUDE_DELEGATOR_CONTEXT_MODE:-auto}"
+subagent_mode="${CLAUDE_DELEGATOR_SUBAGENTS:-off}"
+heartbeat_seconds="${CLAUDE_DELEGATOR_HEARTBEAT_SECONDS:-30}"
 
 if [[ -n "${CLAUDE_DELEGATOR_PERMISSION_MODE:-}" ]]; then
   permission_mode="$CLAUDE_DELEGATOR_PERMISSION_MODE"
@@ -85,6 +87,10 @@ while [[ $# -gt 0 ]]; do
       context_mode="full"
       shift
       ;;
+    --allow-subagents)
+      subagent_mode="on"
+      shift
+      ;;
     --)
       shift
       break
@@ -96,7 +102,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ $# -lt 1 ]]; then
-  echo "Usage: $0 [--pro|--flash] [--effort VALUE] [--quiet|--stream] [--bypass|--interactive] [--mcp MODE] [--full-context] PROMPT [CLAUDE_ARGS...]" >&2
+  echo "Usage: $0 [--pro|--flash] [--effort VALUE] [--quiet|--stream] [--bypass|--interactive] [--mcp MODE] [--full-context] [--allow-subagents] PROMPT [CLAUDE_ARGS...]" >&2
   exit 2
 fi
 
@@ -124,6 +130,21 @@ case "$context_mode" in
     ;;
 esac
 
+case "$subagent_mode" in
+  on|off) ;;
+  *)
+    echo "Invalid subagent mode: $subagent_mode (expected on or off)" >&2
+    exit 2
+    ;;
+esac
+
+case "$heartbeat_seconds" in
+  ''|*[!0-9]*)
+    echo "Invalid heartbeat seconds: $heartbeat_seconds (expected non-negative integer)" >&2
+    exit 2
+    ;;
+esac
+
 prompt="$1"
 shift
 
@@ -140,6 +161,10 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cleanup_files=()
 
 cleanup() {
+  if [[ -n "${heartbeat_pid:-}" ]]; then
+    kill "$heartbeat_pid" 2>/dev/null || true
+    wait "$heartbeat_pid" 2>/dev/null || true
+  fi
   if ((${#cleanup_files[@]})); then
     for file in "${cleanup_files[@]}"; do
       rm -f "$file"
@@ -147,6 +172,29 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
+
+heartbeat_pid=""
+
+stop_heartbeat() {
+  if [[ -n "$heartbeat_pid" ]]; then
+    kill "$heartbeat_pid" 2>/dev/null || true
+    wait "$heartbeat_pid" 2>/dev/null || true
+    heartbeat_pid=""
+  fi
+}
+
+start_heartbeat() {
+  if [[ "$heartbeat_seconds" -eq 0 ]]; then
+    return
+  fi
+  echo "Claude Code started: model=$model effort=$effort mcp=$mcp_mode mode=$output_mode" >&2
+  (
+    while sleep "$heartbeat_seconds"; do
+      echo "Claude Code still running: model=$model effort=$effort mcp=$mcp_mode mode=$output_mode" >&2
+    done
+  ) &
+  heartbeat_pid="$!"
+}
 
 prepared_prompt_file="$(mktemp "${TMPDIR:-/tmp}/claude-delegator-prompt.XXXXXX")"
 adapter_env_file="$(mktemp "${TMPDIR:-/tmp}/claude-delegator-adapter.XXXXXX")"
@@ -180,6 +228,10 @@ args=(
   --permission-mode "$permission_mode"
 )
 
+if [[ "$subagent_mode" == "off" ]]; then
+  args+=(--disallowedTools Task Agent)
+fi
+
 mcp_args=()
 case "$mcp_mode" in
   all)
@@ -193,7 +245,7 @@ case "$mcp_mode" in
       echo "MCP mode '$mcp_mode' requires $source_mcp_config to exist" >&2
       exit 2
     fi
-    selected_mcp_config="$(mktemp "${TMPDIR:-/tmp}/claude-delegator-mcp.XXXXXX.json")"
+    selected_mcp_config="$(mktemp "${TMPDIR:-/tmp}/claude-delegator-mcp.XXXXXX")"
     cleanup_files+=("$selected_mcp_config")
     MCP_MODE="$mcp_mode" MCP_SOURCE="$source_mcp_config" MCP_OUT="$selected_mcp_config" node <<'NODE'
 const fs = require("fs");
@@ -237,6 +289,7 @@ output_file="$(mktemp "${TMPDIR:-/tmp}/claude-delegator-output.XXXXXX")"
 cleanup_files+=("$output_file")
 
 set +e
+start_heartbeat
 if ((${#mcp_args[@]})); then
   "${args[@]}" \
     "${mcp_args[@]}" \
@@ -250,6 +303,7 @@ else
     "$prompt" >"$output_file"
 fi
 claude_status=$?
+stop_heartbeat
 set -e
 
 env \
