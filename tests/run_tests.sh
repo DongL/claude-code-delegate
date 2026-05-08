@@ -245,6 +245,124 @@ test_case "stream flag adds verbose" 0 "--verbose" --stream "test prompt"
 CLAUDE_DELEGATOR_OUTPUT_MODE="stream" \
   test_case "env output_mode stream" 0 "--verbose" "test prompt"
 
+# ---- regression harness: heartbeat, stream events, no-output diagnosis ----
+
+# test_stderr name expected_stderr_substr [args...]
+# Captures stderr separately instead of discarding it
+test_stderr() {
+  local name="$1" expected="$2"
+  shift 2
+  local stderr_capture; stderr_capture=$(mktemp "$SANDBOX/stderr.XXXX")
+  local capture; capture=$(mktemp "$SANDBOX/cap.XXXX")
+  set +e
+  CLAUDE_DELEGATOR_TEST_CAPTURE="$capture" "$RUNNER" "$@" >/dev/null 2>"$stderr_capture"
+  local got_exit=$?
+  set -e
+  if [ "$got_exit" -ne 0 ]; then
+    echo "  FAIL  $name (exit $got_exit, expected 0)"
+    echo "        stderr: $(tr '\n' '|' < "$stderr_capture")"
+    failed=$((failed+1))
+  elif ! grep -qF -e "$expected" "$stderr_capture"; then
+    echo "  FAIL  $name (stderr missing: $expected)"
+    echo "        stderr: $(tr '\n' '|' < "$stderr_capture")"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+  rm -f "$stderr_capture" "$capture"
+}
+
+# test_stderr_absent name unexpected_stderr_substr [args...]
+# Captures stderr and checks absence of a substring
+test_stderr_absent() {
+  local name="$1" unexpected="$2"
+  shift 2
+  local stderr_capture; stderr_capture=$(mktemp "$SANDBOX/stderr.XXXX")
+  local capture; capture=$(mktemp "$SANDBOX/cap.XXXX")
+  set +e
+  CLAUDE_DELEGATOR_TEST_CAPTURE="$capture" "$RUNNER" "$@" >/dev/null 2>"$stderr_capture"
+  local got_exit=$?
+  set -e
+  if [ "$got_exit" -ne 0 ]; then
+    echo "  FAIL  $name (exit $got_exit, expected 0)"
+    echo "        stderr: $(tr '\n' '|' < "$stderr_capture")"
+    failed=$((failed+1))
+  elif grep -qF -e "$unexpected" "$stderr_capture"; then
+    echo "  FAIL  $name (stderr unexpectedly contains: $unexpected)"
+    echo "        stderr: $(tr '\n' '|' < "$stderr_capture")"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+  rm -f "$stderr_capture" "$capture"
+}
+
+# test_stream_compact name expected_substr stdin_text
+# Like test_compact but simulates stream-mode event parsing
+test_stream_compact() {
+  local name="$1" expected="$2" input="$3"
+  local outfile; outfile=$(mktemp "$SANDBOX/stream_out.XXXX")
+  set +e
+  printf '%s' "$input" | "$COMPACT" > "$outfile" 2>/dev/null
+  local rc=$?
+  set -e
+  if ! grep -qF -e "$expected" "$outfile"; then
+    echo "  FAIL  $name (output missing: $expected)"
+    echo "        output: $(cat "$outfile")"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+  rm -f "$outfile"
+}
+
+echo ""
+echo "=== regression harness ==="
+
+# Heartbeat tests (stderr capture)
+test_stderr "heartbeat immediate start message" "Claude Code started" "test prompt"
+
+CLAUDE_DELEGATOR_HEARTBEAT_SECONDS=0 \
+  test_stderr_absent "heartbeat disabled with 0" "Claude Code started" "test prompt"
+
+# Stream mode: compact script parses init events with model, mcpMode, effort
+test_stream_compact "stream compact parses model from init" "model: stream-test" \
+  '{"type":"system","subtype":"init","model":"stream-test"}
+{"type":"result","result":"ok"}'
+
+test_stream_compact "stream compact parses mcpMode from init" "mcpMode: jira-only" \
+  '{"type":"system","subtype":"init","mcpMode":"jira-only"}
+{"type":"result","result":"ok"}'
+
+test_stream_compact "stream compact parses effort from init" "effort: max" \
+  '{"type":"system","subtype":"init","effort":"max"}
+{"type":"result","result":"ok"}'
+
+# Stream mode: tool events do not break compact output
+test_stream_compact "stream compact ignores tool_use events" "done" \
+  '{"type":"tool_use","name":"Read"}
+{"type":"tool_result","content":"file content"}
+{"type":"result","result":"done"}'
+
+# Stream mode: multiple events are all handled
+test_stream_compact "stream compact multiple events" "input_tokens=10, output_tokens=20" \
+  '{"type":"system","subtype":"init","model":"m"}
+{"type":"tool_use","name":"Bash"}
+{"type":"tool_result","content":"output"}
+{"type":"progress","partial":"thinking"}
+{"type":"result","result":"completed","usage":{"input_tokens":10,"output_tokens":20}}'
+
+# No output at all produces exit code 1
+test_compact "no input events exit 1" 1 "" ""
+
+# Only non-result non-init events produce exit code 1
+test_compact "only tool events no result exit 1" 1 "" \
+  '{"type":"tool_use","name":"Read"}
+{"type":"tool_result","content":"data"}'
+
 # ---- compact-claude-stream.py tests ----
 
 echo ""
