@@ -101,6 +101,8 @@ echo "=== run-claude-code.sh ==="
 
 test_case "default pro model" 0 "--model deepseek-v4-pro[1m]" "test prompt"
 
+test_case "default acceptEdits" 0 "--permission-mode acceptEdits" "test prompt"
+
 test_case "--flash flag" 0 "--model deepseek-v4-flash[1m]" --flash "test prompt"
 
 test_case "--pro flag" 0 "--model deepseek-v4-pro[1m]" --pro "test prompt"
@@ -111,8 +113,8 @@ CLAUDE_DELEGATOR_MODEL="claude-sonnet-4-6" \
 CLAUDE_DELEGATOR_EFFORT="medium" \
   test_case "CLAUDE_DELEGATOR_EFFORT override" 0 "--effort medium" "test prompt"
 
-CLAUDE_DELEGATOR_PERMISSION_MODE="acceptEdits" \
-  test_case "CLAUDE_DELEGATOR_PERMISSION_MODE override" 0 "--permission-mode acceptEdits" "test prompt"
+CLAUDE_DELEGATOR_PERMISSION_MODE="bypassPermissions" \
+  test_case "CLAUDE_DELEGATOR_PERMISSION_MODE override" 0 "--permission-mode bypassPermissions" "test prompt"
 
 # Quiet mode (default) writes JSON to temp file, pipes through compact script
 test_case "quiet mode output-format json" 0 "--output-format json" "test prompt"

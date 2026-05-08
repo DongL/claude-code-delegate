@@ -1,10 +1,10 @@
 # Claude Code Delegator
 
-Delegate implementation plans from an orchestrating AI (e.g., Codex) to Claude Code for execution, then review the resulting diff — all in a plan-execute-review loop.
+Delegate implementation plans from an orchestrator (Codex, Cursor, or another AI) to Claude Code for execution, then review the resulting diff — all in a plan-execute-review loop.
 
 ## Overview
 
-This skill/toolkit lets an orchestrating AI (like Codex) own the planning and review phases while Claude Code handles implementation. The workflow is:
+This skill/toolkit lets an orchestrator own the planning and review phases while Claude Code handles implementation. The workflow is:
 
 1. **Plan** — Orchestrator reads context and produces a concrete plan.
 2. **Execute** — Orchestrator invokes Claude Code via the bundled wrapper to execute the plan.
@@ -21,6 +21,7 @@ This skill/toolkit lets an orchestrating AI (like Codex) own the planning and re
 | `scripts/compact-claude-stream.py` | Compacts JSON stream output into a readable final report |
 | `scripts/jira-safe-text.py` | Strips Markdown for Jira MCP plain-text comments |
 | `tests/run_tests.sh` | Test runner |
+| `docs/jira-workflow.md` | Jira-specific delegation conventions |
 
 ## Usage
 
@@ -37,9 +38,11 @@ This skill/toolkit lets an orchestrating AI (like Codex) own the planning and re
 # Environment variable overrides
 CLAUDE_DELEGATOR_MODEL='deepseek-v4-flash[1m]' \
 CLAUDE_DELEGATOR_EFFORT=medium \
-CLAUDE_DELEGATOR_PERMISSION_MODE=acceptEdits \
+CLAUDE_DELEGATOR_PERMISSION_MODE=bypassPermissions \
   ./scripts/run-claude-code.sh "your prompt here"
 ```
+
+From SKILL.md (when consumed by an orchestrator like Codex), set `CLAUDE_DELEGATOR_DIR` to the project root and reference the wrapper via `"$CLAUDE_DELEGATOR_DIR/scripts/run-claude-code.sh"`.
 
 ## Requirements
 

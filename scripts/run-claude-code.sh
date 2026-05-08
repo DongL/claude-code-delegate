@@ -54,7 +54,7 @@ prompt="$1"
 shift
 
 effort="${CLAUDE_DELEGATOR_EFFORT:-max}"
-permission_mode="${CLAUDE_DELEGATOR_PERMISSION_MODE:-bypassPermissions}"
+permission_mode="${CLAUDE_DELEGATOR_PERMISSION_MODE:-acceptEdits}"
 
 args=(
   claude
