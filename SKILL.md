@@ -21,21 +21,37 @@ Required loop:
 
 ## Invocation
 
-If this skill is loaded via Codex (symlinked in `~/.codex/skills/`), Codex reads this file and follows the contract. Before invoking, ensure `CLAUDE_DELEGATOR_DIR` is set — see [README Quick Start](README.md#quick-start) for setup.
-
-Always invoke Claude Code through the bundled wrapper:
+Always invoke Claude Code through the bundled wrapper. The orchestrator resolves the script path using this fallback chain — no mandatory setup step required:
 
 ```bash
-CLAUDE_DELEGATOR_DIR=/path/to/claude-code-delegator
+resolve_delegator() {
+  for dir in \
+    "${CLAUDE_DELEGATOR_DIR:-}" \
+    "$HOME/.agents/skills/claude-code-delegator" \
+    "$HOME/.codex/skills/claude-code-delegator"
+  do
+    if [ -n "$dir" ] && [ -x "$dir/scripts/run-claude-code.sh" ]; then
+      echo "$dir/scripts/run-claude-code.sh"
+      return 0
+    fi
+  done
+  echo "claude-code-delegator not found. Set CLAUDE_DELEGATOR_DIR or install the skill." >&2
+  return 1
+}
 ```
 
-Then invoke via:
+Then delegate via:
 
 ```bash
-"$CLAUDE_DELEGATOR_DIR/scripts/run-claude-code.sh" "$PROMPT"
+"$(resolve_delegator)" "$PROMPT"
 ```
 
 By default the wrapper uses `deepseek-v4-pro[1m]`, `max` effort, `acceptEdits`, and compact `quiet` output for non-interactive plan execution. Adaptive reasoning is controlled by `--effort` (default `max`); thinking tokens are only set when `CLAUDE_DELEGATOR_THINKING_TOKENS` is explicitly provided.
+
+All examples below use `resolve_delegator`. The resolver checks:
+1. `CLAUDE_DELEGATOR_DIR` (explicit override)
+2. `$HOME/.agents/skills/claude-code-delegator` (current Codex skill path)
+3. `$HOME/.codex/skills/claude-code-delegator` (legacy Codex skill path)
 
 Prefer the bundled wrapper to avoid flag drift.
 
@@ -51,10 +67,10 @@ Prefer the wrapper flags when switching models for one invocation:
 
 ```bash
 # Use flash for this invocation:
-"$CLAUDE_DELEGATOR_DIR/scripts/run-claude-code.sh" --flash "$PROMPT"
+"$(resolve_delegator)" --flash "$PROMPT"
 
 # Use pro explicitly:
-"$CLAUDE_DELEGATOR_DIR/scripts/run-claude-code.sh" --pro "$PROMPT"
+"$(resolve_delegator)" --pro "$PROMPT"
 ```
 
 | Env var | Pro (default) | Flash |
@@ -64,7 +80,7 @@ Prefer the wrapper flags when switching models for one invocation:
 ```bash
 # Env override is also supported:
 CLAUDE_DELEGATOR_MODEL='deepseek-v4-flash[1m]' \
-"$CLAUDE_DELEGATOR_DIR/scripts/run-claude-code.sh" "$PROMPT"
+"$(resolve_delegator)" "$PROMPT"
 ```
 
 ### Output Mode
@@ -75,10 +91,10 @@ Use `--stream` only when debugging Claude Code itself, diagnosing permission han
 
 ```bash
 # Compact output, default:
-"$CLAUDE_DELEGATOR_DIR/scripts/run-claude-code.sh" --flash "$PROMPT"
+"$(resolve_delegator)" --flash "$PROMPT"
 
 # Raw verbose stream-json output for debugging:
-"$CLAUDE_DELEGATOR_DIR/scripts/run-claude-code.sh" --flash --stream "$PROMPT"
+"$(resolve_delegator)" --flash --stream "$PROMPT"
 ```
 
 ### Other overrides
@@ -88,7 +104,7 @@ CLAUDE_DELEGATOR_EFFORT=medium \           # default: max
 CLAUDE_DELEGATOR_PERMISSION_MODE=bypassPermissions \  # default: acceptEdits
 CLAUDE_DELEGATOR_THINKING_TOKENS=0 \       # unset by default (--effort controls reasoning)
 CLAUDE_DELEGATOR_OUTPUT_MODE=stream \      # default: quiet
-"$CLAUDE_DELEGATOR_DIR/scripts/run-claude-code.sh" "$PROMPT"
+"$(resolve_delegator)" "$PROMPT"
 ```
 
 ## Prompt Requirements

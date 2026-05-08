@@ -34,34 +34,51 @@ cd claude-code-delegator
 claude --version
 python3 --version
 
-# 3. Set the project root (add to your shell profile for reuse)
-export CLAUDE_DELEGATOR_DIR="$PWD"
+# 3. (Recommended) Symlink into your Codex skill directory
+ln -sf "$PWD" ~/.codex/skills/claude-code-delegator
 
 # 4. Run the test suite to verify everything works
 bash tests/run_tests.sh
 
 # 5. Try a minimal delegation
-"$CLAUDE_DELEGATOR_DIR/scripts/run-claude-code.sh" --flash "hello from delegator"
+./scripts/run-claude-code.sh --flash "hello from delegator"
 ```
 
 ## Usage Modes
 
 ### As a Codex skill
 
-Symlink the project into your Codex skills directory so Codex discovers `SKILL.md` and can invoke the delegation loop:
+Symlink the project into a Codex skill directory so Codex discovers `SKILL.md` and can invoke the delegation loop:
 
 ```bash
+# Current Codex skill path (preferred)
+ln -sf "$CLAUDE_DELEGATOR_DIR" ~/.agents/skills/claude-code-delegator
+
+# Legacy Codex skill path
 ln -sf "$CLAUDE_DELEGATOR_DIR" ~/.codex/skills/claude-code-delegator
 ```
 
-Then use `/claude-code-delegator` in Codex to trigger the plan-execute-review workflow. Codex reads `SKILL.md`, authors a plan, delegates execution to Claude Code via the wrapper, and reviews the diff.
+Then use `/claude-code-delegator` in Codex to trigger the plan-execute-review workflow. Codex reads `SKILL.md` which includes a resolver that finds the wrapper script in any of these locations:
+
+1. `$CLAUDE_DELEGATOR_DIR` (explicit override)
+2. `$HOME/.agents/skills/claude-code-delegator` (current Codex path)
+3. `$HOME/.codex/skills/claude-code-delegator` (legacy Codex path)
+
+No shell-profile setup required — the resolver makes first-run work without env vars.
 
 ### As a standalone orchestrator
 
 Any AI or human can act as the orchestrator by reading `SKILL.md` and invoking the wrapper directly:
 
 ```bash
-"$CLAUDE_DELEGATOR_DIR/scripts/run-claude-code.sh" --flash "implement this feature"
+./scripts/run-claude-code.sh --flash "implement this feature"
+```
+
+Or with an explicit project root (useful when running from a different working directory):
+
+```bash
+CLAUDE_DELEGATOR_DIR=/path/to/claude-code-delegator \
+  ./scripts/run-claude-code.sh --flash "implement this feature"
 ```
 
 The orchestrator is responsible for the loop: plan, delegate, review, correct, report. `SKILL.md` serves as the contract defining each step.
@@ -85,7 +102,7 @@ CLAUDE_DELEGATOR_PERMISSION_MODE=bypassPermissions \
   ./scripts/run-claude-code.sh "your prompt here"
 ```
 
-From SKILL.md (when consumed by an orchestrator like Codex), set `CLAUDE_DELEGATOR_DIR` to the project root and reference the wrapper via `"$CLAUDE_DELEGATOR_DIR/scripts/run-claude-code.sh"`.
+When consumed by an orchestrator, SKILL.md provides a `resolve_delegator` helper that finds the wrapper script across multiple install paths. See `SKILL.md` for the full resolver definition.
 
 ## Requirements
 
