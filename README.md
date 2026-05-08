@@ -23,6 +23,27 @@ This skill/toolkit lets an orchestrator own the planning and review phases while
 | `tests/run_tests.sh` | Test runner |
 | `docs/jira-workflow.md` | Jira-specific delegation conventions |
 
+## Quick Start
+
+```bash
+# 1. Clone
+git clone https://github.com/DongL/claude-code-delegator.git
+cd claude-code-delegator
+
+# 2. Prerequisites: Claude Code installed and python3 available
+claude --version
+python3 --version
+
+# 3. Set the project root (add to your shell profile for reuse)
+export CLAUDE_DELEGATOR_DIR="$PWD"
+
+# 4. Run the test suite to verify everything works
+bash tests/run_tests.sh
+
+# 5. Try a minimal delegation
+"$CLAUDE_DELEGATOR_DIR/scripts/run-claude-code.sh" --flash "hello from delegator"
+```
+
 ## Usage
 
 ```bash
