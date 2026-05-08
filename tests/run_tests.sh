@@ -116,6 +116,8 @@ CLAUDE_DELEGATOR_EFFORT="medium" \
 CLAUDE_DELEGATOR_PERMISSION_MODE="bypassPermissions" \
   test_case "CLAUDE_DELEGATOR_PERMISSION_MODE override" 0 "--permission-mode bypassPermissions" "test prompt"
 
+test_case "--bypass flag" 0 "--permission-mode bypassPermissions" --bypass "test prompt"
+
 # Quiet mode (default) writes JSON to temp file, pipes through compact script
 test_case "quiet mode output-format json" 0 "--output-format json" "test prompt"
 

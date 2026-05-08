@@ -2,12 +2,13 @@
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
-  echo "Usage: $0 [--pro|--flash] [--quiet|--stream] PROMPT [CLAUDE_ARGS...]" >&2
+  echo "Usage: $0 [--pro|--flash] [--quiet|--stream] [--bypass] PROMPT [CLAUDE_ARGS...]" >&2
   exit 2
 fi
 
 model="${CLAUDE_DELEGATOR_MODEL:-deepseek-v4-pro[1m]}"
 output_mode="${CLAUDE_DELEGATOR_OUTPUT_MODE:-quiet}"
+permission_mode="${CLAUDE_DELEGATOR_PERMISSION_MODE:-acceptEdits}"
 
 while [[ $# -gt 0 ]]; do
   case "${1:-}" in
@@ -27,6 +28,10 @@ while [[ $# -gt 0 ]]; do
       output_mode="stream"
       shift
       ;;
+    --bypass)
+      permission_mode="bypassPermissions"
+      shift
+      ;;
     --)
       shift
       break
@@ -38,7 +43,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ $# -lt 1 ]]; then
-  echo "Usage: $0 [--pro|--flash] [--quiet|--stream] PROMPT [CLAUDE_ARGS...]" >&2
+  echo "Usage: $0 [--pro|--flash] [--quiet|--stream] [--bypass] PROMPT [CLAUDE_ARGS...]" >&2
   exit 2
 fi
 
@@ -54,7 +59,6 @@ prompt="$1"
 shift
 
 effort="${CLAUDE_DELEGATOR_EFFORT:-max}"
-permission_mode="${CLAUDE_DELEGATOR_PERMISSION_MODE:-acceptEdits}"
 
 args=(
   claude

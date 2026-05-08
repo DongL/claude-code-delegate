@@ -95,6 +95,9 @@ The orchestrator is responsible for the loop: plan, delegate, review, correct, r
 # Stream output (for debugging)
 ./scripts/run-claude-code.sh --stream "your prompt here"
 
+# Bypass permission prompts (fully non-interactive)
+./scripts/run-claude-code.sh --bypass "your prompt here"
+
 # Environment variable overrides
 CLAUDE_DELEGATOR_MODEL='deepseek-v4-flash[1m]' \
 CLAUDE_DELEGATOR_EFFORT=medium \

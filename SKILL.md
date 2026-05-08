@@ -97,11 +97,25 @@ Use `--stream` only when debugging Claude Code itself, diagnosing permission han
 "$(resolve_delegator)" --flash --stream "$PROMPT"
 ```
 
+### Permission Mode
+
+Default is `acceptEdits` (auto-accepts file edits, prompts on tool commands). Use `--bypass` for fully non-interactive delegation:
+
+```bash
+"$(resolve_delegator)" --bypass "$PROMPT"
+```
+
+Or via environment variable:
+
+```bash
+CLAUDE_DELEGATOR_PERMISSION_MODE=bypassPermissions \
+  "$(resolve_delegator)" "$PROMPT"
+```
+
 ### Other overrides
 
 ```bash
 CLAUDE_DELEGATOR_EFFORT=medium \           # default: max
-CLAUDE_DELEGATOR_PERMISSION_MODE=bypassPermissions \  # default: acceptEdits
 CLAUDE_DELEGATOR_THINKING_TOKENS=0 \       # unset by default (--effort controls reasoning)
 CLAUDE_DELEGATOR_OUTPUT_MODE=stream \      # default: quiet
 "$(resolve_delegator)" "$PROMPT"
@@ -142,6 +156,6 @@ When delegating Jira or issue tracker work, apply Jira-safe plain text formattin
 
 ## Known Failure Mode
 
-Plain `claude -p` with default permissions can appear to hang because Claude Code is waiting on permission requests. The wrapper default `acceptEdits` only auto-accepts file edits and can still block Bash/tool commands such as `.venv/bin/python ...`; override with `CLAUDE_DELEGATOR_PERMISSION_MODE=bypassPermissions` for fully non-interactive delegation.
+Plain `claude -p` with default permissions can appear to hang because Claude Code is waiting on permission requests. The wrapper default `acceptEdits` only auto-accepts file edits and can still block Bash/tool commands such as `.venv/bin/python ...`; use the `--bypass` flag (or `CLAUDE_DELEGATOR_PERMISSION_MODE=bypassPermissions`) for fully non-interactive delegation.
 
 Provider or org/auth access errors usually mean Claude Code is not currently switched to a provider that can serve `deepseek-v4-pro[1m]`, or the provider token in `~/.claude/settings.json` is malformed/expired. Confirm the configured `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and model values without printing secret token contents.
