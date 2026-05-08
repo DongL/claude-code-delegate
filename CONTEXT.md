@@ -16,7 +16,21 @@ The act of the Orchestrator handing a bounded implementation task to the Executo
 
 ## Provider Model
 
-The model name passed to Claude Code (e.g., `deepseek-v4-pro[1m]`). This is not a standard Anthropic model ID — it reflects the custom provider/backend that the target Claude Code installation is configured to use. The Orchestrator knows what model its Claude Code instance can serve. The wrapper defaults to `deepseek-v4-pro[1m]` but is overridable via `CLAUDE_DELEGATOR_MODEL`.
+The model name passed to Claude Code (e.g., `deepseek-v4-pro[1m]`). This is not a standard Anthropic model ID — it reflects a custom provider (DeepSeek V4 via `cc switch`) that the target Claude Code installation is configured to use. The Orchestrator knows what model its Claude Code instance can serve. The wrapper defaults to `deepseek-v4-pro[1m]` but is overridable via `CLAUDE_DELEGATOR_MODEL`.
+
+## Pro vs Flash
+
+The two capability tiers of the DeepSeek V4 model family:
+
+| Axis | Pro | Flash |
+|------|-----|-------|
+| Params | 1.6T total / 49B active | 284B total / 13B active |
+| Purpose | Hard reasoning, architecture, debugging | Fast, cheap, routine coding |
+| Context | 1M tokens | 1M tokens |
+| Thinking | Supported | Supported |
+| Cost | Higher | Lower |
+
+The `[1m]` suffix is a routing label for 1M-token context, not a capability tier. Thinking budget (`--effort`) is orthogonal to model tier — `effort=max` on Flash is not the same as Pro.
 
 ## Correction Iteration
 
