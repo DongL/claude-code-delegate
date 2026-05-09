@@ -6,30 +6,30 @@ if [[ $# -lt 1 ]]; then
   exit 2
 fi
 
-if [[ -n "${CLAUDE_DELEGATOR_MODEL:-}" ]]; then
-  model="$CLAUDE_DELEGATOR_MODEL"
+if [[ -n "${CLAUDE_DELEGATE_MODEL:-}" ]]; then
+  model="$CLAUDE_DELEGATE_MODEL"
   model_explicit=1
 else
   model="deepseek-v4-pro[1m]"
   model_explicit=0
 fi
 
-output_mode="${CLAUDE_DELEGATOR_OUTPUT_MODE:-quiet}"
-mcp_mode="${CLAUDE_DELEGATOR_MCP_MODE:-all}"
-context_mode="${CLAUDE_DELEGATOR_CONTEXT_MODE:-auto}"
-subagent_mode="${CLAUDE_DELEGATOR_SUBAGENTS:-off}"
-heartbeat_seconds="${CLAUDE_DELEGATOR_HEARTBEAT_SECONDS:-30}"
+output_mode="${CLAUDE_DELEGATE_OUTPUT_MODE:-quiet}"
+mcp_mode="${CLAUDE_DELEGATE_MCP_MODE:-all}"
+context_mode="${CLAUDE_DELEGATE_CONTEXT_MODE:-auto}"
+subagent_mode="${CLAUDE_DELEGATE_SUBAGENTS:-off}"
+heartbeat_seconds="${CLAUDE_DELEGATE_HEARTBEAT_SECONDS:-30}"
 
-if [[ -n "${CLAUDE_DELEGATOR_PERMISSION_MODE:-}" ]]; then
-  permission_mode="$CLAUDE_DELEGATOR_PERMISSION_MODE"
+if [[ -n "${CLAUDE_DELEGATE_PERMISSION_MODE:-}" ]]; then
+  permission_mode="$CLAUDE_DELEGATE_PERMISSION_MODE"
   permission_explicit=1
 else
   permission_mode="bypassPermissions"
   permission_explicit=0
 fi
 
-if [[ -n "${CLAUDE_DELEGATOR_EFFORT:-}" ]]; then
-  effort="$CLAUDE_DELEGATOR_EFFORT"
+if [[ -n "${CLAUDE_DELEGATE_EFFORT:-}" ]]; then
+  effort="$CLAUDE_DELEGATE_EFFORT"
   effort_explicit=1
 else
   effort="max"
@@ -153,8 +153,8 @@ shift
 # MAX_THINKING_TOKENS is ignored unless CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1
 # is set. Only export when explicitly overridden.
 # Set to 0 to disable thinking entirely.
-if [[ -n "${CLAUDE_DELEGATOR_THINKING_TOKENS:-}" ]]; then
-  export MAX_THINKING_TOKENS="$CLAUDE_DELEGATOR_THINKING_TOKENS"
+if [[ -n "${CLAUDE_DELEGATE_THINKING_TOKENS:-}" ]]; then
+  export MAX_THINKING_TOKENS="$CLAUDE_DELEGATE_THINKING_TOKENS"
 fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -215,9 +215,9 @@ cleanup_files+=("$prepared_prompt_file" "$adapter_env_file")
 # shellcheck disable=SC1090
 source "$adapter_env_file"
 
-model="$CLAUDE_DELEGATOR_ADAPTED_MODEL"
-effort="$CLAUDE_DELEGATOR_ADAPTED_EFFORT"
-permission_mode="$CLAUDE_DELEGATOR_ADAPTED_PERMISSION_MODE"
+model="$CLAUDE_DELEGATE_ADAPTED_MODEL"
+effort="$CLAUDE_DELEGATE_ADAPTED_EFFORT"
+permission_mode="$CLAUDE_DELEGATE_ADAPTED_PERMISSION_MODE"
 prompt="$(cat "$prepared_prompt_file")"
 
 args=(
@@ -240,7 +240,7 @@ case "$mcp_mode" in
     mcp_args=(--strict-mcp-config --mcp-config '{"mcpServers":{}}')
     ;;
   jira|linear|sequential-thinking)
-    source_mcp_config="${CLAUDE_DELEGATOR_MCP_CONFIG_PATH:-$PWD/.mcp.json}"
+    source_mcp_config="${CLAUDE_DELEGATE_MCP_CONFIG_PATH:-$PWD/.mcp.json}"
     if [[ ! -f "$source_mcp_config" ]]; then
       echo "MCP mode '$mcp_mode' requires $source_mcp_config to exist" >&2
       exit 2
@@ -307,19 +307,19 @@ stop_heartbeat
 set -e
 
 env \
-  CLAUDE_DELEGATOR_OBSERVED_MODEL="$model" \
-  CLAUDE_DELEGATOR_OBSERVED_EFFORT="$effort" \
-  CLAUDE_DELEGATOR_OBSERVED_PERMISSION_MODE="$permission_mode" \
-  CLAUDE_DELEGATOR_OBSERVED_MCP_MODE="$mcp_mode" \
-  CLAUDE_DELEGATOR_OBSERVED_CLASS="$CLAUDE_DELEGATOR_SELECTED_CLASS" \
-  CLAUDE_DELEGATOR_OBSERVED_TASK_TYPE="$CLAUDE_DELEGATOR_SELECTED_TASK_TYPE" \
-  CLAUDE_DELEGATOR_OBSERVED_CONTEXT_BUDGET="$CLAUDE_DELEGATOR_CONTEXT_BUDGET" \
-  CLAUDE_DELEGATOR_OBSERVED_PROMPT_MODE="$CLAUDE_DELEGATOR_PROMPT_MODE" \
-  CLAUDE_DELEGATOR_OBSERVED_PROMPT_TEMPLATE="$CLAUDE_DELEGATOR_PROMPT_TEMPLATE" \
-  CLAUDE_DELEGATOR_ORIGINAL_PROMPT_CHARS="$CLAUDE_DELEGATOR_ORIGINAL_PROMPT_CHARS" \
-  CLAUDE_DELEGATOR_PREPARED_PROMPT_CHARS="$CLAUDE_DELEGATOR_PREPARED_PROMPT_CHARS" \
-  CLAUDE_DELEGATOR_PROMPT_REDUCTION_PCT="$CLAUDE_DELEGATOR_PROMPT_REDUCTION_PCT" \
-  CLAUDE_DELEGATOR_OBSERVED_CWD="$PWD" \
+  CLAUDE_DELEGATE_OBSERVED_MODEL="$model" \
+  CLAUDE_DELEGATE_OBSERVED_EFFORT="$effort" \
+  CLAUDE_DELEGATE_OBSERVED_PERMISSION_MODE="$permission_mode" \
+  CLAUDE_DELEGATE_OBSERVED_MCP_MODE="$mcp_mode" \
+  CLAUDE_DELEGATE_OBSERVED_CLASS="$CLAUDE_DELEGATE_SELECTED_CLASS" \
+  CLAUDE_DELEGATE_OBSERVED_TASK_TYPE="$CLAUDE_DELEGATE_SELECTED_TASK_TYPE" \
+  CLAUDE_DELEGATE_OBSERVED_CONTEXT_BUDGET="$CLAUDE_DELEGATE_CONTEXT_BUDGET" \
+  CLAUDE_DELEGATE_OBSERVED_PROMPT_MODE="$CLAUDE_DELEGATE_PROMPT_MODE" \
+  CLAUDE_DELEGATE_OBSERVED_PROMPT_TEMPLATE="$CLAUDE_DELEGATE_PROMPT_TEMPLATE" \
+  CLAUDE_DELEGATE_ORIGINAL_PROMPT_CHARS="$CLAUDE_DELEGATE_ORIGINAL_PROMPT_CHARS" \
+  CLAUDE_DELEGATE_PREPARED_PROMPT_CHARS="$CLAUDE_DELEGATE_PREPARED_PROMPT_CHARS" \
+  CLAUDE_DELEGATE_PROMPT_REDUCTION_PCT="$CLAUDE_DELEGATE_PROMPT_REDUCTION_PCT" \
+  CLAUDE_DELEGATE_OBSERVED_CWD="$PWD" \
   "$script_dir/compact-claude-stream.py" <"$output_file"
 compact_status=$?
 

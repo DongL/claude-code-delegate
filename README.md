@@ -88,7 +88,7 @@ You can use this project either as a [Codex skill](#as-a-codex-skill) by symlink
 | `scripts/run-claude-code.sh` | Wrapper that invokes Claude Code with consistent flags |
 | `scripts/delegation-adapter.py` | Classifies tasks, wraps full prompts in task templates, and emits profiling metadata |
 | `scripts/compact-claude-stream.py` | Compacts JSON stream output into a readable final report |
-| `scripts/aggregate-profile-log.py` | Aggregates CLAUDE_DELEGATOR_PROFILE_LOG JSONL into a summary |
+| `scripts/aggregate-profile-log.py` | Aggregates CLAUDE_DELEGATE_PROFILE_LOG JSONL into a summary |
 | `scripts/jira-safe-text.py` | Strips Markdown for Jira MCP plain-text comments |
 | `tests/run_tests.sh` | Test runner |
 | `docs/jira-workflow.md` | Jira-specific delegation conventions |
@@ -208,14 +208,14 @@ The orchestrator is responsible for the loop: plan, delegate, review, correct, r
 ./scripts/run-claude-code.sh --allow-subagents "your prompt here"
 
 # Environment variable overrides
-CLAUDE_DELEGATOR_MODEL='deepseek-v4-flash[1m]' \
-CLAUDE_DELEGATOR_EFFORT=medium \
-CLAUDE_DELEGATOR_PERMISSION_MODE=bypassPermissions \
-CLAUDE_DELEGATOR_MCP_MODE=none \
-CLAUDE_DELEGATOR_CONTEXT_MODE=full \
-CLAUDE_DELEGATOR_SUBAGENTS=on \
-CLAUDE_DELEGATOR_HEARTBEAT_SECONDS=15 \
-CLAUDE_DELEGATOR_PROFILE_LOG=logs/delegation-profile.jsonl \
+CLAUDE_DELEGATE_MODEL='deepseek-v4-flash[1m]' \
+CLAUDE_DELEGATE_EFFORT=medium \
+CLAUDE_DELEGATE_PERMISSION_MODE=bypassPermissions \
+CLAUDE_DELEGATE_MCP_MODE=none \
+CLAUDE_DELEGATE_CONTEXT_MODE=full \
+CLAUDE_DELEGATE_SUBAGENTS=on \
+CLAUDE_DELEGATE_HEARTBEAT_SECONDS=15 \
+CLAUDE_DELEGATE_PROFILE_LOG=logs/delegation-profile.jsonl \
   ./scripts/run-claude-code.sh "your prompt here"
 ```
 
@@ -223,26 +223,26 @@ See [SECURITY.md](SECURITY.md) for a detailed breakdown of permission modes, ris
 
 When consumed by an orchestrator, SKILL.md provides a `resolve_delegator` helper that finds the wrapper script across multiple install paths. See `SKILL.md` for the full resolver definition.
 
-MCP mode defaults to `all`, which preserves Claude Code's normal MCP discovery. `--mcp none` uses a strict empty MCP config, while `--mcp jira`, `--mcp linear`, and `--mcp sequential-thinking` load only that server from `.mcp.json` or `CLAUDE_DELEGATOR_MCP_CONFIG_PATH`.
+MCP mode defaults to `all`, which preserves Claude Code's normal MCP discovery. `--mcp none` uses a strict empty MCP config, while `--mcp jira`, `--mcp linear`, and `--mcp sequential-thinking` load only that server from `.mcp.json` or `CLAUDE_DELEGATE_MCP_CONFIG_PATH`.
 
 The wrapper classifies tasks before invocation. Tiny read-only checks use flash/low effort/minimal context, routine edits and Jira operations use flash/medium effort, debugging uses pro/high effort, architecture work uses pro/max effort, and unknown prompts fall back to the original full prompt with pro/max. Known task templates preserve the full original request; the wrapper does not truncate executor context to save Claude Code-side tokens. Compact output shows the selected class, task type, context budget, prompt template, token usage, cost, and optional JSONL profiling metadata.
 
-Subagents are disabled by default via `--disallowedTools Task Agent` so a delegated executor does not silently spawn another local agent while quiet mode buffers output. Quiet mode writes a heartbeat to stderr immediately and every 30 seconds; set `CLAUDE_DELEGATOR_HEARTBEAT_SECONDS=0` to disable it.
+Subagents are disabled by default via `--disallowedTools Task Agent` so a delegated executor does not silently spawn another local agent while quiet mode buffers output. Quiet mode writes a heartbeat to stderr immediately and every 30 seconds; set `CLAUDE_DELEGATE_HEARTBEAT_SECONDS=0` to disable it.
 
 ## Profiling Analysis
 
-Set `CLAUDE_DELEGATOR_PROFILE_LOG` to append profiling metadata to a JSONL file after each delegation. Each record contains model, effort, task type, token usage, cache hit data, cost, and prompt character counts. The bundled `scripts/aggregate-profile-log.py` reads these logs and produces a concise aggregate summary:
+Set `CLAUDE_DELEGATE_PROFILE_LOG` to append profiling metadata to a JSONL file after each delegation. Each record contains model, effort, task type, token usage, cache hit data, cost, and prompt character counts. The bundled `scripts/aggregate-profile-log.py` reads these logs and produces a concise aggregate summary:
 
 ```bash
 # Enable profiling
-export CLAUDE_DELEGATOR_PROFILE_LOG=logs/delegation-profile.jsonl
+export CLAUDE_DELEGATE_PROFILE_LOG=logs/delegation-profile.jsonl
 ./scripts/run-claude-code.sh --flash "your prompt here"
 
 # Aggregate analysis (plain text, default)
-python3 scripts/aggregate-profile-log.py "$CLAUDE_DELEGATOR_PROFILE_LOG"
+python3 scripts/aggregate-profile-log.py "$CLAUDE_DELEGATE_PROFILE_LOG"
 
 # Machine-readable JSON output
-python3 scripts/aggregate-profile-log.py --json "$CLAUDE_DELEGATOR_PROFILE_LOG"
+python3 scripts/aggregate-profile-log.py --json "$CLAUDE_DELEGATE_PROFILE_LOG"
 
 # Or pass the path directly
 python3 scripts/aggregate-profile-log.py logs/delegation-profile.jsonl

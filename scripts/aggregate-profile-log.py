@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Aggregate CLAUDE_DELEGATOR_PROFILE_LOG JSONL records into a summary.
+"""Aggregate CLAUDE_DELEGATE_PROFILE_LOG JSONL records into a summary.
 
 Default output is concise plain text optimized for orchestrator-side review.
 Use --json for machine-readable output.
@@ -260,12 +260,12 @@ def main() -> int:
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Aggregate CLAUDE_DELEGATOR_PROFILE_LOG JSONL records."
+        description="Aggregate CLAUDE_DELEGATE_PROFILE_LOG JSONL records."
     )
     parser.add_argument(
         "profile_log",
         nargs="?",
-        help="Path to profile JSONL. Defaults to CLAUDE_DELEGATOR_PROFILE_LOG env var.",
+        help="Path to profile JSONL. Defaults to CLAUDE_DELEGATE_PROFILE_LOG env var.",
     )
     parser.add_argument(
         "--json",
@@ -274,10 +274,10 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    path = args.profile_log or os.environ.get("CLAUDE_DELEGATOR_PROFILE_LOG")
+    path = args.profile_log or os.environ.get("CLAUDE_DELEGATE_PROFILE_LOG")
     if not path:
         print(
-            "No profile log specified. Provide path or set CLAUDE_DELEGATOR_PROFILE_LOG.",
+            "No profile log specified. Provide path or set CLAUDE_DELEGATE_PROFILE_LOG.",
             file=sys.stderr,
         )
         return 1

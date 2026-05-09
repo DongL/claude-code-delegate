@@ -196,17 +196,17 @@ def main() -> int:
     Path(args.env_out).write_text(
         "\n".join(
             [
-                _env_line("CLAUDE_DELEGATOR_ADAPTED_MODEL", model),
-                _env_line("CLAUDE_DELEGATOR_ADAPTED_EFFORT", effort),
-                _env_line("CLAUDE_DELEGATOR_ADAPTED_PERMISSION_MODE", permission_mode),
-                _env_line("CLAUDE_DELEGATOR_SELECTED_CLASS", classification.name),
-                _env_line("CLAUDE_DELEGATOR_SELECTED_TASK_TYPE", classification.task_type),
-                _env_line("CLAUDE_DELEGATOR_CONTEXT_BUDGET", classification.context_budget),
-                _env_line("CLAUDE_DELEGATOR_PROMPT_MODE", prompt_mode),
-                _env_line("CLAUDE_DELEGATOR_PROMPT_TEMPLATE", classification.task_type),
-                _env_line("CLAUDE_DELEGATOR_ORIGINAL_PROMPT_CHARS", str(original_chars)),
-                _env_line("CLAUDE_DELEGATOR_PREPARED_PROMPT_CHARS", str(prepared_chars)),
-                _env_line("CLAUDE_DELEGATOR_PROMPT_REDUCTION_PCT", str(reduction_pct)),
+                _env_line("CLAUDE_DELEGATE_ADAPTED_MODEL", model),
+                _env_line("CLAUDE_DELEGATE_ADAPTED_EFFORT", effort),
+                _env_line("CLAUDE_DELEGATE_ADAPTED_PERMISSION_MODE", permission_mode),
+                _env_line("CLAUDE_DELEGATE_SELECTED_CLASS", classification.name),
+                _env_line("CLAUDE_DELEGATE_SELECTED_TASK_TYPE", classification.task_type),
+                _env_line("CLAUDE_DELEGATE_CONTEXT_BUDGET", classification.context_budget),
+                _env_line("CLAUDE_DELEGATE_PROMPT_MODE", prompt_mode),
+                _env_line("CLAUDE_DELEGATE_PROMPT_TEMPLATE", classification.task_type),
+                _env_line("CLAUDE_DELEGATE_ORIGINAL_PROMPT_CHARS", str(original_chars)),
+                _env_line("CLAUDE_DELEGATE_PREPARED_PROMPT_CHARS", str(prepared_chars)),
+                _env_line("CLAUDE_DELEGATE_PROMPT_REDUCTION_PCT", str(reduction_pct)),
                 "",
             ]
         ),
