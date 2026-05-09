@@ -26,7 +26,7 @@ Always invoke Claude Code through the bundled wrapper. The orchestrator resolves
 ```bash
 resolve_delegator() {
   for dir in \
-    "${CLAUDE_DELEGATOR_DIR:-}" \
+    "${CLAUDE_DELEGATE_DIR:-}" \
     "$HOME/.agents/skills/claude-code-delegate" \
     "$HOME/.codex/skills/claude-code-delegate"
   do
@@ -35,7 +35,7 @@ resolve_delegator() {
       return 0
     fi
   done
-  echo "claude-code-delegate not found. Set CLAUDE_DELEGATOR_DIR or install the skill." >&2
+  echo "claude-code-delegate not found. Set CLAUDE_DELEGATE_DIR or install the skill." >&2
   return 1
 }
 ```
@@ -49,7 +49,7 @@ Then delegate via:
 By default the wrapper classifies the task and chooses model, effort, permission mode, and prompt shape. Unknown tasks keep the safe legacy defaults: `deepseek-v4-pro[1m]`, `max` effort, `bypassPermissions`, and compact `quiet` output. Adaptive reasoning is controlled by `--effort`; thinking tokens are only set when `CLAUDE_DELEGATOR_THINKING_TOKENS` is explicitly provided. The wrapper also disables Claude Code's built-in subagent tool by default and emits a quiet-mode heartbeat so long delegations do not look stuck. The wrapper does not shorten the original request sent to Claude Code; token savings should come from compacting Claude Code's output back to the orchestrator, not from dropping executor context.
 
 All examples below use `resolve_delegator`. The resolver checks:
-1. `CLAUDE_DELEGATOR_DIR` (explicit override)
+1. `CLAUDE_DELEGATE_DIR` (explicit override)
 2. `$HOME/.agents/skills/claude-code-delegate` (current Codex skill path)
 3. `$HOME/.codex/skills/claude-code-delegate` (legacy Codex skill path)
 
