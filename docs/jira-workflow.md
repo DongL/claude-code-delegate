@@ -18,7 +18,7 @@ The Jira MCP `add_comment` tool accepts a plain text body, not Markdown. Markdow
 The bundled `scripts/jira-safe-text.py` utility converts Markdown text to Jira-safe plain text:
 
 ```bash
-echo "**bold** and *italic*" | "$CLAUDE_DELEGATOR_DIR/scripts/jira-safe-text.py"
+echo "**bold** and *italic*" | "$CLAUDE_DELEGATE_DIR/scripts/jira-safe-text.py"
 # Output: bold and italic
 ```
 
