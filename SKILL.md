@@ -46,7 +46,7 @@ Then delegate via:
 "$(resolve_delegator)" "$PROMPT"
 ```
 
-By default the wrapper classifies the task and chooses model, effort, permission mode, and prompt shape. Unknown tasks keep the safe legacy defaults: `deepseek-v4-pro[1m]`, `max` effort, `bypassPermissions`, and compact `quiet` output. Adaptive reasoning is controlled by `--effort`; thinking tokens are only set when `CLAUDE_DELEGATOR_THINKING_TOKENS` is explicitly provided. The wrapper also disables Claude Code's built-in subagent tool by default and emits a quiet-mode heartbeat so long delegations do not look stuck. The wrapper does not shorten the original request sent to Claude Code; token savings should come from compacting Claude Code's output back to the orchestrator, not from dropping executor context.
+By default the wrapper classifies the task and chooses model, effort, permission mode, and prompt shape. Unknown tasks keep the safe legacy defaults: `deepseek-v4-pro[1m]`, `max` effort, `bypassPermissions`, and compact `quiet` output. Adaptive reasoning is controlled by `--effort`; thinking tokens are only set when `CLAUDE_DELEGATE_THINKING_TOKENS` is explicitly provided. The wrapper also disables Claude Code's built-in subagent tool by default and emits a quiet-mode heartbeat so long delegations do not look stuck. The wrapper does not shorten the original request sent to Claude Code; token savings should come from compacting Claude Code's output back to the orchestrator, not from dropping executor context.
 
 All examples below use `resolve_delegator`. The resolver checks:
 1. `CLAUDE_DELEGATE_DIR` (explicit override)
@@ -75,11 +75,11 @@ Prefer the wrapper flags when switching models for one invocation:
 
 | Env var | Pro (default) | Flash |
 |---------|---------------|-------|
-| `CLAUDE_DELEGATOR_MODEL` | `deepseek-v4-pro[1m]` | `deepseek-v4-flash[1m]` |
+| `CLAUDE_DELEGATE_MODEL` | `deepseek-v4-pro[1m]` | `deepseek-v4-flash[1m]` |
 
 ```bash
 # Env override is also supported:
-CLAUDE_DELEGATOR_MODEL='deepseek-v4-flash[1m]' \
+CLAUDE_DELEGATE_MODEL='deepseek-v4-flash[1m]' \
 "$(resolve_delegator)" "$PROMPT"
 ```
 
@@ -115,7 +115,7 @@ Default is `bypassPermissions` (fully non-interactive — no permission prompts)
 Or via environment variable (overrides default when no flag is supplied; explicit flags win when provided):
 
 ```bash
-CLAUDE_DELEGATOR_PERMISSION_MODE=acceptEdits \
+CLAUDE_DELEGATE_PERMISSION_MODE=acceptEdits \
   "$(resolve_delegator)" "$PROMPT"
 ```
 
@@ -136,7 +136,7 @@ Explicit flags and env vars override classification:
 ```bash
 "$(resolve_delegator)" --flash --effort medium "$PROMPT"
 
-CLAUDE_DELEGATOR_EFFORT=max \
+CLAUDE_DELEGATE_EFFORT=max \
   "$(resolve_delegator)" "$PROMPT"
 ```
 
@@ -150,7 +150,7 @@ Default delegation disables Claude Code's built-in `Task`/`Agent` subagent tool.
 "$(resolve_delegator)" --allow-subagents "$PROMPT"
 ```
 
-Quiet mode prints progress to stderr immediately and every 30 seconds while Claude Code is still running. Set `CLAUDE_DELEGATOR_HEARTBEAT_SECONDS=0` to disable the heartbeat or another integer to change the interval.
+Quiet mode prints progress to stderr immediately and every 30 seconds while Claude Code is still running. Set `CLAUDE_DELEGATE_HEARTBEAT_SECONDS=0` to disable the heartbeat or another integer to change the interval.
 
 ### MCP Mode
 
@@ -169,28 +169,28 @@ Default MCP mode is `all`: Claude Code uses its normal project/user MCP configur
 "$(resolve_delegator)" --mcp sequential-thinking "$PROMPT"
 ```
 
-Supported modes are `all`, `none`, `jira`, `linear`, and `sequential-thinking`. `none` uses Claude Code's `--strict-mcp-config` with an empty MCP config. Specific server modes use `--strict-mcp-config` with a generated one-server config read from `.mcp.json`, or from `CLAUDE_DELEGATOR_MCP_CONFIG_PATH` when set.
+Supported modes are `all`, `none`, `jira`, `linear`, and `sequential-thinking`. `none` uses Claude Code's `--strict-mcp-config` with an empty MCP config. Specific server modes use `--strict-mcp-config` with a generated one-server config read from `.mcp.json`, or from `CLAUDE_DELEGATE_MCP_CONFIG_PATH` when set.
 
 Built-in Claude Code file and shell tools are not MCP servers, so `--mcp none` still allows normal implementation work. It only suppresses project/user MCP server loading.
 
 Environment variable override:
 
 ```bash
-CLAUDE_DELEGATOR_MCP_MODE=jira \
+CLAUDE_DELEGATE_MCP_MODE=jira \
   "$(resolve_delegator)" "$PROMPT"
 ```
 
 ### Other overrides
 
 ```bash
-CLAUDE_DELEGATOR_EFFORT=medium \           # default: max
-CLAUDE_DELEGATOR_THINKING_TOKENS=0 \       # unset by default (--effort controls reasoning)
-CLAUDE_DELEGATOR_OUTPUT_MODE=stream \      # default: quiet
-CLAUDE_DELEGATOR_MCP_MODE=none \           # default: all
-CLAUDE_DELEGATOR_CONTEXT_MODE=full \       # default: auto
-CLAUDE_DELEGATOR_SUBAGENTS=on \            # default: off
-CLAUDE_DELEGATOR_HEARTBEAT_SECONDS=15 \    # default: 30; 0 disables
-CLAUDE_DELEGATOR_PROFILE_LOG=logs/delegation-profile.jsonl \
+CLAUDE_DELEGATE_EFFORT=medium \           # default: max
+CLAUDE_DELEGATE_THINKING_TOKENS=0 \       # unset by default (--effort controls reasoning)
+CLAUDE_DELEGATE_OUTPUT_MODE=stream \      # default: quiet
+CLAUDE_DELEGATE_MCP_MODE=none \           # default: all
+CLAUDE_DELEGATE_CONTEXT_MODE=full \       # default: auto
+CLAUDE_DELEGATE_SUBAGENTS=on \            # default: off
+CLAUDE_DELEGATE_HEARTBEAT_SECONDS=15 \    # default: 30; 0 disables
+CLAUDE_DELEGATE_PROFILE_LOG=logs/delegation-profile.jsonl \
 "$(resolve_delegator)" "$PROMPT"
 ```
 
@@ -203,11 +203,11 @@ For known task types, the wrapper wraps the full original prompt in a task-speci
 - `jira_operation`
 - `architecture_review`
 
-Each template preserves the full original request, task goal, allowed scope, constraints, and verification expectations. Unknown task types fall back to the original prompt. Use `--full-context` or `CLAUDE_DELEGATOR_CONTEXT_MODE=full` when debugging prompt adaptation.
+Each template preserves the full original request, task goal, allowed scope, constraints, and verification expectations. Unknown task types fall back to the original prompt. Use `--full-context` or `CLAUDE_DELEGATE_CONTEXT_MODE=full` when debugging prompt adaptation.
 
 ### Profiling
 
-Quiet output includes model, effort, permission mode, MCP mode, class, task type, context budget, prompt template, prompt character counts, usage tokens, cache-read tokens, cache-hit ratio when available, cost, and terminal reason. Prompt reduction is expected to be zero for normal templated prompts because the original request is preserved. Set `CLAUDE_DELEGATOR_PROFILE_LOG` to append the same non-secret metadata to JSONL for trend analysis. The bundled `scripts/aggregate-profile-log.py` reads these JSONL records and outputs a concise aggregate summary (plain text by default, `--json` for machine-readable).
+Quiet output includes model, effort, permission mode, MCP mode, class, task type, context budget, prompt template, prompt character counts, usage tokens, cache-read tokens, cache-hit ratio when available, cost, and terminal reason. Prompt reduction is expected to be zero for normal templated prompts because the original request is preserved. Set `CLAUDE_DELEGATE_PROFILE_LOG` to append the same non-secret metadata to JSONL for trend analysis. The bundled `scripts/aggregate-profile-log.py` reads these JSONL records and outputs a concise aggregate summary (plain text by default, `--json` for machine-readable).
 
 ## Prompt Requirements
 

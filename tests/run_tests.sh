@@ -17,11 +17,11 @@ SANDBOX=$(mktemp -d)
 trap 'rm -rf "$SANDBOX"' EXIT
 
 # Fake claude that records invocation and returns valid JSON.
-# CLAUDE_DELEGATOR_TEST_CAPTURE points to a temp file for assertions.
+# CLAUDE_DELEGATE_TEST_CAPTURE points to a temp file for assertions.
 cat > "$SANDBOX/claude" <<'FAKE'
 #!/usr/bin/env bash
-echo "args:$*" >> "${CLAUDE_DELEGATOR_TEST_CAPTURE:-/dev/null}"
-echo "MAX_THINKING_TOKENS:${MAX_THINKING_TOKENS:-}" >> "${CLAUDE_DELEGATOR_TEST_CAPTURE:-/dev/null}"
+echo "args:$*" >> "${CLAUDE_DELEGATE_TEST_CAPTURE:-/dev/null}"
+echo "MAX_THINKING_TOKENS:${MAX_THINKING_TOKENS:-}" >> "${CLAUDE_DELEGATE_TEST_CAPTURE:-/dev/null}"
 cat <<'JSONEOF'
 {"type":"result","result":"done","usage":{"input_tokens":5,"output_tokens":10}}
 JSONEOF
@@ -31,8 +31,8 @@ chmod +x "$SANDBOX/claude"
 export PATH="$SANDBOX:$PATH"
 
 # Unset profile log to prevent test runs from polluting real profiling data.
-# The profile-logging test case sets its own CLAUDE_DELEGATOR_PROFILE_LOG to a sandbox path.
-unset CLAUDE_DELEGATOR_PROFILE_LOG
+# The profile-logging test case sets its own CLAUDE_DELEGATE_PROFILE_LOG to a sandbox path.
+unset CLAUDE_DELEGATE_PROFILE_LOG
 
 passed=0
 failed=0
@@ -45,7 +45,7 @@ test_case() {
   shift 3
   local capture; capture=$(mktemp "$SANDBOX/cap.XXXX")
   set +e
-  CLAUDE_DELEGATOR_TEST_CAPTURE="$capture" "$RUNNER" "$@" >/dev/null 2>/dev/null
+  CLAUDE_DELEGATE_TEST_CAPTURE="$capture" "$RUNNER" "$@" >/dev/null 2>/dev/null
   local got_exit=$?
   set -e
   if [ "$got_exit" -ne "$expected_exit" ]; then
@@ -68,7 +68,7 @@ test_case_absent() {
   shift 2
   local capture; capture=$(mktemp "$SANDBOX/cap.XXXX")
   set +e
-  CLAUDE_DELEGATOR_TEST_CAPTURE="$capture" "$RUNNER" "$@" >/dev/null 2>/dev/null
+  CLAUDE_DELEGATE_TEST_CAPTURE="$capture" "$RUNNER" "$@" >/dev/null 2>/dev/null
   local got_exit=$?
   set -e
   if [ "$got_exit" -ne 0 ]; then
@@ -138,24 +138,24 @@ test_case "--flash flag" 0 "--model deepseek-v4-flash[1m]" --flash "test prompt"
 
 test_case "--pro flag" 0 "--model deepseek-v4-pro[1m]" --pro "test prompt"
 
-CLAUDE_DELEGATOR_MODEL="claude-sonnet-4-6" \
-  test_case "CLAUDE_DELEGATOR_MODEL override" 0 "--model claude-sonnet-4-6" "test prompt"
+CLAUDE_DELEGATE_MODEL="claude-sonnet-4-6" \
+  test_case "CLAUDE_DELEGATE_MODEL override" 0 "--model claude-sonnet-4-6" "test prompt"
 
-CLAUDE_DELEGATOR_EFFORT="medium" \
-  test_case "CLAUDE_DELEGATOR_EFFORT override" 0 "--effort medium" "test prompt"
+CLAUDE_DELEGATE_EFFORT="medium" \
+  test_case "CLAUDE_DELEGATE_EFFORT override" 0 "--effort medium" "test prompt"
 
-CLAUDE_DELEGATOR_PERMISSION_MODE="bypassPermissions" \
-  test_case "CLAUDE_DELEGATOR_PERMISSION_MODE override" 0 "--permission-mode bypassPermissions" "test prompt"
+CLAUDE_DELEGATE_PERMISSION_MODE="bypassPermissions" \
+  test_case "CLAUDE_DELEGATE_PERMISSION_MODE override" 0 "--permission-mode bypassPermissions" "test prompt"
 
 test_case "--bypass flag" 0 "--permission-mode bypassPermissions" --bypass "test prompt"
 
 test_case "--interactive flag" 0 "--permission-mode acceptEdits" --interactive "test prompt"
 
 # Explicit flag overrides env var
-CLAUDE_DELEGATOR_PERMISSION_MODE="acceptEdits" \
+CLAUDE_DELEGATE_PERMISSION_MODE="acceptEdits" \
   test_case "--bypass overrides env acceptEdits" 0 "--permission-mode bypassPermissions" --bypass "test prompt"
 
-CLAUDE_DELEGATOR_PERMISSION_MODE="bypassPermissions" \
+CLAUDE_DELEGATE_PERMISSION_MODE="bypassPermissions" \
   test_case "--interactive overrides env bypassPermissions" 0 "--permission-mode acceptEdits" --interactive "test prompt"
 
 # Quiet mode (default) writes JSON to temp file, pipes through compact script
@@ -202,17 +202,17 @@ test_case "stream mode --verbose" 0 "--verbose" --stream "test prompt"
 test_case "stream mode stream-json" 0 "--output-format stream-json" --stream "test prompt"
 test_case "stream mode include-partial" 0 "--include-partial-messages" --stream "test prompt"
 
-CLAUDE_DELEGATOR_OUTPUT_MODE="invalid" \
+CLAUDE_DELEGATE_OUTPUT_MODE="invalid" \
   test_exit "invalid output mode" 2 "test prompt"
 
-CLAUDE_DELEGATOR_SUBAGENTS="invalid" \
+CLAUDE_DELEGATE_SUBAGENTS="invalid" \
   test_exit "invalid subagent mode" 2 "test prompt"
 
-CLAUDE_DELEGATOR_HEARTBEAT_SECONDS="abc" \
+CLAUDE_DELEGATE_HEARTBEAT_SECONDS="abc" \
   test_exit "invalid heartbeat seconds" 2 "test prompt"
 
-CLAUDE_DELEGATOR_THINKING_TOKENS="0" \
-  test_case "CLAUDE_DELEGATOR_THINKING_TOKENS export" 0 "MAX_THINKING_TOKENS:0" "test prompt"
+CLAUDE_DELEGATE_THINKING_TOKENS="0" \
+  test_case "CLAUDE_DELEGATE_THINKING_TOKENS export" 0 "MAX_THINKING_TOKENS:0" "test prompt"
 
 test_case_absent "default mcp all no strict config" "--strict-mcp-config" "test prompt"
 
@@ -230,13 +230,13 @@ cat > "$SANDBOX/mcp.json" <<'JSON'
 }
 JSON
 
-CLAUDE_DELEGATOR_MCP_CONFIG_PATH="$SANDBOX/mcp.json" \
+CLAUDE_DELEGATE_MCP_CONFIG_PATH="$SANDBOX/mcp.json" \
   test_case "--mcp jira strict config" 0 "--strict-mcp-config" --mcp jira "test prompt"
 
-CLAUDE_DELEGATOR_MCP_CONFIG_PATH="$SANDBOX/mcp.json" \
+CLAUDE_DELEGATE_MCP_CONFIG_PATH="$SANDBOX/mcp.json" \
   test_case "--mcp jira passes generated mcp-config" 0 "--mcp-config" --mcp jira "test prompt"
 
-CLAUDE_DELEGATOR_MCP_MODE="none" \
+CLAUDE_DELEGATE_MCP_MODE="none" \
   test_case "env mcp mode none" 0 "--strict-mcp-config" "test prompt"
 
 test_exit "invalid mcp mode" 2 --mcp invalid "test prompt"
@@ -246,8 +246,8 @@ test_exit "no prompt exits 2" 2
 # Test that --stream flag does NOT imply --quiet output format
 test_case "stream flag adds verbose" 0 "--verbose" --stream "test prompt"
 
-# Env override: CLAUDE_DELEGATOR_OUTPUT_MODE=stream
-CLAUDE_DELEGATOR_OUTPUT_MODE="stream" \
+# Env override: CLAUDE_DELEGATE_OUTPUT_MODE=stream
+CLAUDE_DELEGATE_OUTPUT_MODE="stream" \
   test_case "env output_mode stream" 0 "--verbose" "test prompt"
 
 # ---- regression harness: heartbeat, stream events, no-output diagnosis ----
@@ -260,7 +260,7 @@ test_stderr() {
   local stderr_capture; stderr_capture=$(mktemp "$SANDBOX/stderr.XXXX")
   local capture; capture=$(mktemp "$SANDBOX/cap.XXXX")
   set +e
-  CLAUDE_DELEGATOR_TEST_CAPTURE="$capture" "$RUNNER" "$@" >/dev/null 2>"$stderr_capture"
+  CLAUDE_DELEGATE_TEST_CAPTURE="$capture" "$RUNNER" "$@" >/dev/null 2>"$stderr_capture"
   local got_exit=$?
   set -e
   if [ "$got_exit" -ne 0 ]; then
@@ -286,7 +286,7 @@ test_stderr_absent() {
   local stderr_capture; stderr_capture=$(mktemp "$SANDBOX/stderr.XXXX")
   local capture; capture=$(mktemp "$SANDBOX/cap.XXXX")
   set +e
-  CLAUDE_DELEGATOR_TEST_CAPTURE="$capture" "$RUNNER" "$@" >/dev/null 2>"$stderr_capture"
+  CLAUDE_DELEGATE_TEST_CAPTURE="$capture" "$RUNNER" "$@" >/dev/null 2>"$stderr_capture"
   local got_exit=$?
   set -e
   if [ "$got_exit" -ne 0 ]; then
@@ -330,7 +330,7 @@ echo "=== regression harness ==="
 # Heartbeat tests (stderr capture)
 test_stderr "heartbeat immediate start message" "Claude Code started" "test prompt"
 
-CLAUDE_DELEGATOR_HEARTBEAT_SECONDS=0 \
+CLAUDE_DELEGATE_HEARTBEAT_SECONDS=0 \
   test_stderr_absent "heartbeat disabled with 0" "Claude Code started" "test prompt"
 
 # Stream mode: compact script parses init events with model, mcpMode, effort
@@ -409,7 +409,7 @@ test_compact "effort from init" 0 "effort: high" \
 
 outfile=$(mktemp "$SANDBOX/cs_out.XXXX")
 set +e
-printf '%s' '{"type":"result","result":"ok"}' | CLAUDE_DELEGATOR_OBSERVED_MCP_MODE=jira "$COMPACT" > "$outfile" 2>/dev/null
+printf '%s' '{"type":"result","result":"ok"}' | CLAUDE_DELEGATE_OBSERVED_MCP_MODE=jira "$COMPACT" > "$outfile" 2>/dev/null
 rc=$?
 set -e
 if [ "$rc" -ne 0 ]; then
@@ -428,14 +428,14 @@ rm -f "$outfile"
 outfile=$(mktemp "$SANDBOX/cs_out.XXXX")
 set +e
 printf '%s' '{"type":"result","result":"ok"}' | \
-  CLAUDE_DELEGATOR_OBSERVED_CLASS=tiny \
-  CLAUDE_DELEGATOR_OBSERVED_TASK_TYPE=read_only_scan \
-  CLAUDE_DELEGATOR_OBSERVED_CONTEXT_BUDGET=minimal \
-  CLAUDE_DELEGATOR_OBSERVED_PROMPT_MODE=template \
-  CLAUDE_DELEGATOR_OBSERVED_PROMPT_TEMPLATE=read_only_scan \
-  CLAUDE_DELEGATOR_ORIGINAL_PROMPT_CHARS=100 \
-  CLAUDE_DELEGATOR_PREPARED_PROMPT_CHARS=70 \
-  CLAUDE_DELEGATOR_PROMPT_REDUCTION_PCT=30 \
+  CLAUDE_DELEGATE_OBSERVED_CLASS=tiny \
+  CLAUDE_DELEGATE_OBSERVED_TASK_TYPE=read_only_scan \
+  CLAUDE_DELEGATE_OBSERVED_CONTEXT_BUDGET=minimal \
+  CLAUDE_DELEGATE_OBSERVED_PROMPT_MODE=template \
+  CLAUDE_DELEGATE_OBSERVED_PROMPT_TEMPLATE=read_only_scan \
+  CLAUDE_DELEGATE_ORIGINAL_PROMPT_CHARS=100 \
+  CLAUDE_DELEGATE_PREPARED_PROMPT_CHARS=70 \
+  CLAUDE_DELEGATE_PROMPT_REDUCTION_PCT=30 \
   "$COMPACT" > "$outfile" 2>/dev/null
 rc=$?
 set -e
@@ -456,10 +456,10 @@ profile_log="$SANDBOX/profile.jsonl"
 outfile=$(mktemp "$SANDBOX/cs_out.XXXX")
 set +e
 printf '%s' '{"type":"result","result":"ok","usage":{"input_tokens":5},"total_cost_usd":0.1}' | \
-  CLAUDE_DELEGATOR_PROFILE_LOG="$profile_log" \
-  CLAUDE_DELEGATOR_OBSERVED_CLASS=small \
-  CLAUDE_DELEGATOR_ORIGINAL_PROMPT_CHARS=10 \
-  CLAUDE_DELEGATOR_PREPARED_PROMPT_CHARS=8 \
+  CLAUDE_DELEGATE_PROFILE_LOG="$profile_log" \
+  CLAUDE_DELEGATE_OBSERVED_CLASS=small \
+  CLAUDE_DELEGATE_ORIGINAL_PROMPT_CHARS=10 \
+  CLAUDE_DELEGATE_PREPARED_PROMPT_CHARS=8 \
   "$COMPACT" > "$outfile" 2>/dev/null
 rc=$?
 set -e

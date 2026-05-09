@@ -64,23 +64,23 @@ def main() -> int:
         elif event.get("is_error") is True:
             errors.append(json.dumps(event, ensure_ascii=False)[:1000])
 
-    model = (init or {}).get("model") or os.environ.get("CLAUDE_DELEGATOR_OBSERVED_MODEL")
-    effort = (init or {}).get("effort") or os.environ.get("CLAUDE_DELEGATOR_OBSERVED_EFFORT")
+    model = (init or {}).get("model") or os.environ.get("CLAUDE_DELEGATE_OBSERVED_MODEL")
+    effort = (init or {}).get("effort") or os.environ.get("CLAUDE_DELEGATE_OBSERVED_EFFORT")
     permission_mode = (init or {}).get("permissionMode") or os.environ.get(
-        "CLAUDE_DELEGATOR_OBSERVED_PERMISSION_MODE"
+        "CLAUDE_DELEGATE_OBSERVED_PERMISSION_MODE"
     )
     mcp_mode = (init or {}).get("mcpMode") or os.environ.get(
-        "CLAUDE_DELEGATOR_OBSERVED_MCP_MODE"
+        "CLAUDE_DELEGATE_OBSERVED_MCP_MODE"
     )
-    task_class = os.environ.get("CLAUDE_DELEGATOR_OBSERVED_CLASS")
-    task_type = os.environ.get("CLAUDE_DELEGATOR_OBSERVED_TASK_TYPE")
-    context_budget = os.environ.get("CLAUDE_DELEGATOR_OBSERVED_CONTEXT_BUDGET")
-    prompt_mode = os.environ.get("CLAUDE_DELEGATOR_OBSERVED_PROMPT_MODE")
-    prompt_template = os.environ.get("CLAUDE_DELEGATOR_OBSERVED_PROMPT_TEMPLATE")
-    original_prompt_chars = os.environ.get("CLAUDE_DELEGATOR_ORIGINAL_PROMPT_CHARS")
-    prepared_prompt_chars = os.environ.get("CLAUDE_DELEGATOR_PREPARED_PROMPT_CHARS")
-    prompt_reduction_pct = os.environ.get("CLAUDE_DELEGATOR_PROMPT_REDUCTION_PCT")
-    cwd = (init or {}).get("cwd") or os.environ.get("CLAUDE_DELEGATOR_OBSERVED_CWD")
+    task_class = os.environ.get("CLAUDE_DELEGATE_OBSERVED_CLASS")
+    task_type = os.environ.get("CLAUDE_DELEGATE_OBSERVED_TASK_TYPE")
+    context_budget = os.environ.get("CLAUDE_DELEGATE_OBSERVED_CONTEXT_BUDGET")
+    prompt_mode = os.environ.get("CLAUDE_DELEGATE_OBSERVED_PROMPT_MODE")
+    prompt_template = os.environ.get("CLAUDE_DELEGATE_OBSERVED_PROMPT_TEMPLATE")
+    original_prompt_chars = os.environ.get("CLAUDE_DELEGATE_ORIGINAL_PROMPT_CHARS")
+    prepared_prompt_chars = os.environ.get("CLAUDE_DELEGATE_PREPARED_PROMPT_CHARS")
+    prompt_reduction_pct = os.environ.get("CLAUDE_DELEGATE_PROMPT_REDUCTION_PCT")
+    cwd = (init or {}).get("cwd") or os.environ.get("CLAUDE_DELEGATE_OBSERVED_CWD")
 
     has_profile = any(
         (
@@ -145,7 +145,7 @@ def main() -> int:
         if terminal_reason:
             print(f"- terminal_reason={terminal_reason}")
 
-    profile_log = os.environ.get("CLAUDE_DELEGATOR_PROFILE_LOG")
+    profile_log = os.environ.get("CLAUDE_DELEGATE_PROFILE_LOG")
     if profile_log:
         usage = result.get("usage") if isinstance(result, dict) else None
         record = {
