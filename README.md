@@ -15,12 +15,12 @@ Instead of letting one agent plan, modify files, and approve its own work, this 
 
 ```text
 ┌──────────────────────┐
-│ Orchestrator          │
-│ Codex / Cursor / You  │
+│ Orchestrator         │
+│ Codex / Cursor / You │
 │                      │
-│ - Understand task     │
-│ - Create plan         │
-│ - Review results      │
+│ - Understand task    │
+│ - Create plan        │
+│ - Review results     │
 └──────────┬───────────┘
            │
            │ concrete plan
@@ -29,10 +29,10 @@ Instead of letting one agent plan, modify files, and approve its own work, this 
 │ Claude Code Delegate │
 │ Skill + Wrapper      │
 │                      │
-│ - Resolve paths       │
-│ - Select model        │
-│ - Build prompt        │
-│ - Control execution   │
+│ - Resolve paths      │
+│ - Select model       │
+│ - Build prompt       │
+│ - Control execution  │
 └──────────┬───────────┘
            │
            │ adapted execution prompt
@@ -52,10 +52,10 @@ Instead of letting one agent plan, modify files, and approve its own work, this 
 ┌──────────────────────┐
 │ Verification Output  │
 │                      │
-│ - Code diff           │
-│ - Test results        │
-│ - Execution summary   │
-│ - Errors / warnings   │
+│ - Code diff          │
+│ - Test results       │
+│ - Execution summary  │
+│ - Errors / warnings  │
 └──────────┬───────────┘
            │
            │ evidence for review
@@ -63,9 +63,9 @@ Instead of letting one agent plan, modify files, and approve its own work, this 
 ┌──────────────────────┐
 │ Orchestrator Review  │
 │                      │
-│ - Accept patch        │
-│ - Request correction  │
-│ - Reject unsafe diff  │
+│ - Accept patch       │
+│ - Request correction │
+│ - Reject unsafe diff │
 └──────────────────────┘
 ```
 
