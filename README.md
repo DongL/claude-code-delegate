@@ -6,27 +6,79 @@ Delegate implementation plans from an orchestrator (Codex, Cursor, or another AI
 
 ## Overview
 
-```
-Orchestrator          Claude Code           DeepSeek V4           Output
-(Codex/Cursor)        (wrapper)             (model)
-    │                     │                     │
-    ├─ plan ─────────────►│                     │
-    │                     ├── adapted prompt ───►│
-    │                     │                     ├── implementation
-    │                     │◄──── result ────────┤
-    │◄── diff + report ───┤                     │
-    │                     │                     │
-    ├─ review ───────────►│                     │
-    │◄── final summary ───┤                     │
+Claude Code Delegate is a lightweight delegation toolkit for AI coding workflows.
+
+Instead of letting one agent plan, modify files, and approve its own work, this project separates the workflow into two roles:
+
+- **Orchestrator** — Codex, Cursor, or another high-level agent that owns planning and review.
+- **Execution engine** — Claude Code running with DeepSeek V4 as the model backend, focused on implementation.
+
+```text
+┌──────────────────────┐
+│ Orchestrator         │
+│ Codex / Cursor / You │
+│                      │
+│ - Understand task    │
+│ - Create plan        │
+│ - Review results     │
+└──────────┬───────────┘
+           │
+           │ concrete plan
+           ▼
+┌──────────────────────┐
+│ Claude Code Delegate │
+│ Skill + Wrapper      │
+│                      │
+│ - Resolve paths      │
+│ - Select model       │
+│ - Build prompt       │
+│ - Control execution  │
+└──────────┬───────────┘
+           │
+           │ adapted execution prompt
+           ▼
+┌──────────────────────────────┐
+│ Claude Code + DeepSeek V4    │
+│ Execution Engine             │
+│                              │
+│ - Edit files                 │
+│ - Run commands               │
+│ - Generate tests             │
+│ - Fix implementation issues  │
+└──────────┬───────────────────┘
+           │
+           │ diff + logs + test results
+           ▼
+┌──────────────────────┐
+│ Verification Output  │
+│                      │
+│ - Code diff          │
+│ - Test results       │
+│ - Execution summary  │
+│ - Errors / warnings  │
+└──────────┬───────────┘
+           │
+           │ evidence for review
+           ▼
+┌──────────────────────┐
+│ Orchestrator Review  │
+│                      │
+│ - Accept patch       │
+│ - Request correction │
+│ - Reject unsafe diff │
+└──────────────────────┘
 ```
 
-This skill/toolkit lets an orchestrator own the planning and review phases while Claude Code handles implementation. Use it as a [Codex skill](#as-a-codex-skill) (symlink into `~/.codex/skills/`) or as a [standalone orchestrator](#as-a-standalone-orchestrator) via the bundled wrapper. The workflow is:
+The workflow is:
 
-1. **Plan** — Orchestrator reads context and produces a concrete plan.
-2. **Execute** — Orchestrator invokes Claude Code via the bundled wrapper to execute the plan.
-3. **Review** — Orchestrator inspects the diff and test results.
-4. **Correct** (optional) — One targeted correction pass if needed.
-5. **Report** — Final summary with changed files, tests, and residual risk.
+1. **Plan** — The orchestrator reads the project context and produces a concrete implementation plan.
+2. **Delegate** — The wrapper converts that plan into a Claude Code execution prompt and applies model, effort, permission, and output settings.
+3. **Execute** — Claude Code runs the implementation using DeepSeek V4 as the model backend.
+4. **Verify** — The wrapper returns changed files, command output, test results, and execution metadata.
+5. **Review** — The orchestrator inspects the diff and decides whether to accept, reject, or request a targeted correction pass.
+6. **Report** — The final response summarizes what changed, which tests ran, and any remaining risks.
+
+You can use this project either as a [Codex skill](#as-a-codex-skill) by symlinking it into your skills directory, or as a [standalone orchestrator](#as-a-standalone-orchestrator) through the bundled wrapper scripts.
 
 ## Components
 
