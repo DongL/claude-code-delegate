@@ -120,6 +120,39 @@ bash tests/run_tests.sh
 ./scripts/run-claude-code.sh --interactive --flash "hello from delegator"
 ```
 
+## Provider Setup
+
+This project defaults to DeepSeek V4 models. Before running the wrapper, configure Claude Code to use DeepSeek as the model backend. Two options:
+
+### Option A: Environment variables (recommended)
+
+Set these in your shell profile (`.zshrc`, `.bashrc`) or before each session:
+
+```bash
+export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
+export ANTHROPIC_AUTH_TOKEN=<your DeepSeek API key>
+export ANTHROPIC_MODEL=deepseek-v4-pro[1m]
+export ANTHROPIC_DEFAULT_OPUS_MODEL=deepseek-v4-pro[1m]
+export ANTHROPIC_DEFAULT_SONNET_MODEL=deepseek-v4-pro[1m]
+export ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek-v4-flash
+export CLAUDE_CODE_SUBAGENT_MODEL=deepseek-v4-flash
+export CLAUDE_CODE_EFFORT_LEVEL=max
+```
+
+Get your API key at [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys).
+
+Verify it works:
+
+```bash
+claude -p "hello" --model deepseek-v4-flash[1m]
+```
+
+### Option B: cc-switch (GUI)
+
+[cc-switch](https://github.com/farion1231/cc-switch) is a cross-platform desktop app that manages provider configuration across Claude Code, Codex, and other AI tools. It ships with 50+ provider presets including DeepSeek — no manual env vars needed. Install it, select DeepSeek from the provider list, and click to activate.
+
+---
+
 ## Real-World Demos
 
 ```bash
