@@ -8,7 +8,7 @@ REPO_URL="https://github.com/DongL/claude-code-delegate.git"
 if [ "${1:-}" = "--uninstall" ]; then
   echo "==> Uninstalling claude-code-delegate..."
 
-  for d in "$HOME/.agents/skills/claude-code-delegate" "$HOME/.codex/skills/claude-code-delegate"; do
+  for d in "$HOME/.claude/skills/claude-code-delegate" "$HOME/.agents/skills/claude-code-delegate" "$HOME/.codex/skills/claude-code-delegate"; do
     if [ -L "$d" ] || [ -e "$d" ]; then
       rm -f "$d"
       echo "  Removed $d"
@@ -48,6 +48,10 @@ fi
 mkdir -p "$HOME/.agents/skills"
 ln -sfn "$INSTALL_DIR" "$HOME/.agents/skills/claude-code-delegate"
 echo "  [OK] Symlinked to ~/.agents/skills/claude-code-delegate"
+
+mkdir -p "$HOME/.claude/skills"
+ln -sfn "$INSTALL_DIR" "$HOME/.claude/skills/claude-code-delegate"
+echo "  [OK] Symlinked to ~/.claude/skills/claude-code-delegate"
 
 mkdir -p "$HOME/.codex/skills"
 ln -sfn "$INSTALL_DIR" "$HOME/.codex/skills/claude-code-delegate"
