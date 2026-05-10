@@ -49,7 +49,7 @@ CLAUDE_DELEGATE_MODEL='deepseek-v4-flash[1m]' \
 
 ## Output Mode
 
-Default output mode is `quiet`: the wrapper asks Claude Code for final JSON output, pipes it through `compact-claude-stream.py`, and returns only the final result plus model, permission mode, usage, cost, and terminal status. This is the preferred mode for normal delegation because the orchestrator does not need to ingest every thinking or partial-message event.
+Default output mode is `quiet`: the pipeline asks Claude Code for final JSON output, parses it internally via `compact-claude-stream.py`, and returns only the final result plus model, permission mode, usage, cost, and terminal status. This is the preferred mode for normal delegation because the orchestrator does not need to ingest every thinking or partial-message event.
 
 Use `--stream` only when debugging Claude Code itself, diagnosing permission hangs, inspecting tool events, or preserving the raw stream is necessary:
 

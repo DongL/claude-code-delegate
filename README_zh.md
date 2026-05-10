@@ -1,99 +1,22 @@
 # Claude Code Delegate
 
-> Codex 做架构师，Claude Code 做运行时，DeepSeek V4 做低成本模型后端。
+> 让你的 AI 编排器（Codex、Cursor、Claude Code）将实现任务委派给 Claude Code —— 以 DeepSeek V4 作为低成本模型后端。
 
-Claude Code Delegate 是一个面向编排器驱动 AI 编码工作流的受控委派层。编排器（Codex、Cursor 或其他 AI）负责规划和审查；本工具格式化计划、调用 Claude Code 作为执行运行时（默认使用 DeepSeek V4 后端）、压缩结果并返回给编排器审查。wrapper 不会批准或拒绝变更——那是编排器的职责。
+编排器负责规划和审查。本工具处理中间所有环节：分类任务、包装 prompt 模板、调用 Claude Code、压缩输出、返回结构化结果。wrapper 和 pipeline 均不批准变更 —— 这是编排器的职责。
 
-## 这个项目是什么 / 不是什么
+## 这是什么 / 不是什么
 
-| 这个项目是... | 这个项目不是... |
+| 本项目是... | 本项目不是... |
 |---|---|
-| Codex/Cursor 驱动工作流的受控委派层 | 全自主编码 agent |
-| 标准化 model、effort、permission、MCP 和输出的轻量 wrapper | "Claude Code 接 DeepSeek"——模型后端可替换 |
-| 将规划（编排器）与执行（Claude Code 运行时）分离的工具集 | 编排器规划和审查角色的替代品 |
-| 为编排器返回简洁报告的压缩器 | 审批系统——wrapper 不接受或拒绝变更 |
+| AI-to-AI 编码工作流的委派层 | 全自主编码 agent |
+| 标准化分类、调用和输出压缩的流水线 | 编排器规划和审查角色的替代品 |
+| 传输无关：MCP server + shell wrapper，共享同一 pipeline | 「连接 DeepSeek 的 Claude Code」——模型后端可替换 |
 
-## 为什么不直接用 Claude Code + DeepSeek？
+## 编排器如何调用
 
-你可以直接用 Claude Code 连接任何 provider：
+### MCP 传输（推荐）
 
-```bash
-claude -p "fix the type error in src/cli.py" --model deepseek-v4-flash[1m]
-```
-
-直接调用适合单条命令、快速检查、交互式调试。wrapper 在以下场景提供额外价值：
-
-- **标准化标志**：每次调用统一设置 model、effort、permission mode、MCP config 和 output mode，不会出现标志漂移。
-- **任务分类**：适配器自动对每个 prompt 分类（tiny 只读、routine 编辑、debugging、architecture），选择合适的模型层级和 effort 级别。
-- **输出压缩**：原始 Claude Code JSON 流被压缩为简洁报告（变更文件、命令结果、测试输出、错误），编排器无需解析流式 JSON。
-- **安全默认值**：子 agent 默认禁用，防止静默递归。心跳信号确认长时间任务仍在运行。
-- **画像元数据**：每次委派记录 model、effort、token 用量和费用，用于趋势分析。
-
-快速问答用 `claude -p`。需要一致、可审查的委派和标准化输出时使用 wrapper。
-
-## 概览
-
-Claude Code Delegate **不是**全自主编码 agent。编排器编写计划并审查结果；wrapper 不批准变更。
-
-本项目将工作流分为两个角色，而不是让一个 agent 规划、修改文件并批准自己的工作：
-
-- **编排器**——Codex、Cursor 或其他高级 agent，负责规划和审查。
-- **执行运行时**——以 DeepSeek V4 为模型后端的 Claude Code，专注于实现。
-
-![架构图](docs/assets/claude-code-delegate-architecture.svg)
-
-工作流程：
-
-1. **Plan**——编排器读取项目上下文，生成包含所有权边界和验证命令的具体实施计划。
-2. **Delegate**——适配器对任务分类，选择 prompt 封套，应用 model/effort/permission/output 设置。wrapper 以一致的标志调用 Claude Code。
-3. **Execute**——Claude Code 使用配置的模型后端（默认 DeepSeek V4）执行实现。编辑文件、运行命令、生成测试。
-4. **Compact**——wrapper 捕获 Claude Code 的 JSON 输出，通过 `compact-claude-stream.py` 压缩为简洁报告：变更文件、命令输出、测试结果、错误和执行元数据。wrapper **不**批准或拒绝变更。
-5. **Review**——编排器检查 `git diff`、测试输出和压缩报告，决定接受、拒绝或请求定向修正。
-6. **Report**——编排器给出最终摘要：变更内容、测试运行情况、剩余风险。
-
-使用 shell wrapper 时，步骤 2–4 是独立的 CLI 调用。使用 MCP 传输时，编排器调用 `delegate_task`，服务端在一次类型化的 JSON-RPC 调用中处理分类、封装、调用和压缩——相同流水线，不同接口。
-
-你可以通过[软链接到 Codex skill 目录](#作为-codex-skill-使用)使用本项目，也可以[作为独立编排器](#作为独立编排器使用)通过 shell wrapper 直接调用脚本，或作为 [MCP 服务器](#mcp-server)进行类型化的 JSON-RPC 发现。
-
-## 组件
-
-| 文件 | 用途 |
-|------|------|
-| `SKILL.md` | 编排器契约——定义委派循环、解析器和编排器职责 |
-| `scripts/run-claude-code.sh` | Wrapper——标准化 model、effort、permission mode、MCP config 和输出格式 |
-| `scripts/delegation-adapter.py` | 适配器——分类任务大小/类型、选择 prompt 模板、设置路由参数 |
-| `scripts/classifier.py` | 分类器——提取自 delegation-adapter，纯函数 classify_prompt() |
-| `scripts/envelope_builder.py` | 封套构建器——提取自 delegation-adapter，为 prompt 包装任务模板 |
-| `scripts/invoker.py` | 调用器——启动 claude -p 子进程，处理 MCP 配置、心跳、输出捕获 |
-| `scripts/compact-claude-stream.py` | 压缩器——将原始 JSON 流压缩为面向编排器的简洁报告（含 parse_compact_output()） |
-| `scripts/aggregate-profile-log.py` | 画像聚合器——读取 CLAUDE_DELEGATE_PROFILE_LOG JSONL 并生成摘要 |
-| `scripts/profile_logger.py` | 画像日志——提取自 compact-claude-stream，提供 append_profile_record() |
-| `scripts/jira-safe-text.py` | Jira 格式化器——剥离 Markdown 用于 Jira MCP 纯文本评论 |
-| `scripts/mcp_server.py` | MCP 服务器——通过 stdio JSON-RPC 暴露委派工具（classify、delegate、aggregate、format_jira_text） |
-| `tests/run_tests.sh` | 测试运行器——覆盖 wrapper 标志解析、适配器分类、压缩器行为、invoker、MCP 服务器 |
-| `docs/jira-workflow.md` | Jira 委派约定 |
-| `docs/shell-wrapper-reference.md` | Shell wrapper CLI 参考——所有标志、环境变量和 `scripts/run-claude-code.sh` 的模式 |
-| `docs/adr/` | 架构决策记录 |
-
-## 运行模式
-
-### 权限模式
-
-wrapper 支持三种权限模式，对应不同信任级别：
-
-| 模式 | 标志 | 权限设置 | 适用场景 |
-|------|------|---------|----------|
-| 安全首次运行 | `--interactive` | `acceptEdits`——自动接受文件编辑，工具命令需确认 | 首次使用、调试或需要审查命令时 |
-| 受控委派 | *(默认)* | `bypassPermissions`——完全非交互 | 正常无头委派，编排器事后审查结果 |
-| 自动化模式 | `--bypass` | `bypassPermissions`——同默认，显式别名 | CI/CD 流水线、可信仓库、脚本 |
-
-> **⚠️ 审查提醒**：权限模式只控制 Claude Code 执行过程中是否弹出确认。wrapper 从不批准或拒绝变更——那是编排器的职责。无论什么权限模式，接受委派工作前务必检查 `git diff` 和测试输出。
-
-### MCP 传输
-
-`scripts/mcp_server.py` 通过 stdio JSON-RPC 将委派暴露为 MCP 服务器。支持 MCP 的主机可以通过 `tools/list` 发现四个工具，并通过类型化 JSON-RPC 调用。需要 `pip install mcp`。Shell wrapper 仍是主传输通道，不需要 `mcp` 包——MCP 服务器是为支持 MCP 的编排器新增的发现层。
-
-`.mcp.json` 配置示例（请勿创建真实文件）：
+在项目的 `.mcp.json` 中添加：
 
 ```json
 {
@@ -106,50 +29,90 @@ wrapper 支持三种权限模式，对应不同信任级别：
 }
 ```
 
-### MCP 工具
+编排器通过 `tools/list` 发现四个工具，一次类型化调用即可委派：
 
-| 工具 | 功能 |
-|------|------|
-| `classify_task` | 将 prompt 按大小、类型、模型层级、effort、权限模式和上下文预算分类 |
-| `delegate_task` | 完整委派管线：分类→封套→调用→压缩→返回含 usage 和 cost 的结构化结果 |
-| `aggregate_profile` | 将 CLAUDE_DELEGATE_PROFILE_LOG JSONL 聚合为文本或 JSON 摘要 |
-| `format_jira_text` | 将 Markdown 转换为 Jira 安全的纯文本 |
+```
+delegate_task(prompt="修复 src/cli.py 中的类型错误")
+// → { classification, result, usage, cost_usd, terminal_reason }
+```
 
-### MCP vs Shell Wrapper
+还提供：`classify_task`、`aggregate_profile`、`format_jira_text`。需要 `pip install mcp`。
 
-| 维度 | Shell Wrapper | MCP 传输 |
-|------|--------------|---------|
-| 发现 | 编排器必须知道解析器路径 | MCP 客户端通过 `tools/list` 发现 |
-| 契约 | CLI 标志和退出码 | 类型化 JSON-RPC 请求/响应，结构化错误 |
-| 错误 | 退出码 + stderr | 标准错误码的 JSON-RPC 错误对象 |
-| 调用 | `"$(resolve_delegator)" "$PROMPT"` | `tools/call` 带类型参数 |
-| 依赖 | bash + python3 | 需要 `pip install mcp` |
+### Shell wrapper（后备）
 
-Shell wrapper 仍是主传输通道，不需要 `mcp` 包。MCP 服务器是附加层——当有 MCP 主机时，它提供类型化发现和结构化响应，不改变 shell wrapper 接口。
+同一流水线，通过 CLI 调用：
 
-## 快速上手
+```bash
+./scripts/run-claude-code.sh "修复 src/cli.py 中的类型错误"
+```
 
-### 一键安装
+wrapper 解析标志，调用 `scripts/run-pipeline.py`，输出简洁报告。不需要 `mcp` 包。完整 CLI 参考见 [docs/shell-wrapper-reference.md](docs/shell-wrapper-reference.md)。
 
+两个传输共享 `scripts/pipeline.py` —— 相同的 classify → envelope → invoke → compact → profile 逻辑。
+
+## 委派循环
+
+1. **Plan** —— 编排器读取项目上下文，生成包含所有权边界和验证命令的具体计划。
+2. **Delegate** —— pipeline 分类任务、包装 prompt 模板、解析 model/effort/permission 设置、调用 Claude Code、压缩输出。
+3. **Execute** —— Claude Code 使用配置的模型后端（默认 DeepSeek V4）执行计划。
+4. **Compact** —— pipeline 将 Claude Code 的 JSON 输出解析为简洁报告：结果文本、token 用量、成本、终止状态。
+5. **Review** —— 编排器检查 `git diff`、测试输出和报告，决定接受、拒绝或要求修正。
+6. **Report** —— 编排器给出最终摘要：变更内容、测试结果、剩余风险。
+
+修正循环重复步骤 2–5，直到 diff 正确。
+
+## 为什么不直接 `claude -p`？
+
+```bash
+claude -p "修复类型错误" --model deepseek-v4-flash[1m]
+```
+
+直接调用适合单个命令。委派层在以下场景增值：
+
+- **任务分类** —— 根据 prompt 内容自动选择模型层级和 effort（flash 用于编辑，pro 用于调试/架构）。
+- **Prompt 模板** —— 将编排器的计划包装在任务封套中，包含编码规范和所有权边界。
+- **输出压缩** —— 原始 JSON 流变为编排器可程序化解析的结构化报告。
+- **安全默认值** —— 禁用 subagent，心跳确认执行器仍在运行，记录画像元数据。
+- **一致调用** —— 每次委派的 model、effort、permissions、MCP config 完全一致。
+
+快速回答用 `claude -p`。需要一致、可审查的 AI-to-AI 执行时用委派层。
+
+## 安装
+
+### 一行命令
+
+```bash
 curl -fsSL https://raw.githubusercontent.com/DongL/claude-code-delegate/main/install.sh | bash
+```
 
 ### 手动安装
 
-```
+```bash
 git clone https://github.com/DongL/claude-code-delegate.git ~/.claude-code-delegate
 mkdir -p ~/.agents/skills
 ln -sfn ~/.claude-code-delegate ~/.agents/skills/claude-code-delegate
 bash ~/.claude-code-delegate/tests/run_tests.sh
-pip3 install mcp  # 可选，用于 MCP 服务器
+pip3 install mcp  # 可选，用于 MCP server
 ```
 
-## Provider 配置
+### 作为 Codex skill
 
-本项目默认使用 DeepSeek V4 模型。在运行 wrapper 之前，需要配置 Claude Code 使用 DeepSeek 作为模型后端。两种方式：
+创建符号链接到 skill 目录，让 Codex 发现 `SKILL.md`：
 
-### 方式 A：环境变量（推荐）
+```bash
+mkdir -p ~/.agents/skills
+ln -sfn "$PWD" ~/.agents/skills/claude-code-delegate
+```
 
-在 shell 配置文件（`.zshrc`、`.bashrc`）中设置，或在每次会话前设置：
+`SKILL.md` 中的解析器按以下路径查找 wrapper：
+
+1. `$CLAUDE_DELEGATE_DIR` —— 显式覆盖
+2. `$HOME/.agents/skills/claude-code-delegate` —— 当前 Codex 路径
+3. `$HOME/.codex/skills/claude-code-delegate` —— 旧版 Codex 路径
+
+## Provider 设置
+
+本项目默认使用 DeepSeek V4 模型，通过环境变量配置：
 
 ```bash
 export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
@@ -162,219 +125,71 @@ export CLAUDE_CODE_SUBAGENT_MODEL=deepseek-v4-flash[1m]
 export CLAUDE_CODE_EFFORT_LEVEL=max
 ```
 
-在 [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys) 获取 API key。
-
-验证是否可用：
+在 [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys) 获取 API key。验证：
 
 ```bash
 claude -p "hello" --model deepseek-v4-flash[1m]
 ```
 
-### 方式 B：cc-switch（GUI）
+或者使用 [cc-switch](https://github.com/farion1231/cc-switch) 进行 GUI 方式的 provider 管理，内置 50+ 预设。
 
-[cc-switch](https://github.com/farion1231/cc-switch) 是一个跨平台桌面应用，管理 Claude Code、Codex 和其他 AI 工具的 provider 配置。内置 50+ 个 provider 预设，包括 DeepSeek——无需手动设置环境变量。安装后从 provider 列表选择 DeepSeek 并点击激活即可。
-
-> **注意**：模型名称和 provider URL 因 Claude Code provider 适配器或代理（cc-switch、OpenRouter、自定义端点等）而异。如果 `claude -p "hello" --model deepseek-v4-flash[1m]` 失败，请先调试 provider 配置再怀疑 wrapper 有问题。wrapper 原样传递模型名称，不翻译或重新映射模型标识符。
-
----
-
-## 实战示例
+覆盖单次委派的模型：
 
 ```bash
-# 修复 README 拼写错误
-./scripts/run-claude-code.sh --interactive "fix the typo 'Recieve' to 'Receive' in README.md"
-
-# 为已有函数添加单元测试
-./scripts/run-claude-code.sh --interactive "add a unit test for the parse_args() function in src/cli.py"
-
-# 审查 PR diff 并提出改进建议
-./scripts/run-claude-code.sh --interactive "review git diff HEAD~1 and report issues"
+CLAUDE_DELEGATE_MODEL=claude-sonnet-4-6 ./scripts/run-claude-code.sh "你的 prompt"
 ```
 
-## 使用方式
+## CLI 参考
 
-### 作为 Codex Skill 使用
+| 标志 | 效果 |
+|------|------|
+| *(无)* | Pro 模型，quiet 输出，bypass 权限（默认） |
+| `--pro` / `--flash` | 模型层级选择 |
+| `--effort low\|medium\|high\|max` | 推理预算覆盖 |
+| `--interactive` | 自动接受编辑，工具命令需确认（安全首次运行） |
+| `--bypass` | 完全非交互（默认的显式别名） |
+| `--stream` | 原始 stream-json 输出（调试用） |
+| `--mcp all\|none\|jira\|linear\|sequential-thinking` | MCP server 加载 |
+| `--full-context` | 跳过 prompt 模板包装 |
+| `--allow-subagents` | 允许 Claude Code 生成 subagent |
 
-将项目软链接到 Codex skill 目录，Codex 发现 `SKILL.md` 后即可调用委派循环：
+环境变量等价项和完整细节：[docs/shell-wrapper-reference.md](docs/shell-wrapper-reference.md)。权限模式和安全：[SECURITY.md](SECURITY.md)。
 
-```bash
-# 推荐（当前 Codex 路径）
-mkdir -p ~/.agents/skills
-ln -sfn "$PWD" ~/.agents/skills/claude-code-delegate
+## 组件
 
-# 旧版 Codex 路径（仅当你的 Codex 版本仍使用它）
-mkdir -p ~/.codex/skills
-ln -sfn "$PWD" ~/.codex/skills/claude-code-delegate
-```
-
-`SKILL.md` 中的解析器按以下顺序查找 wrapper 脚本：
-
-1. `$CLAUDE_DELEGATE_DIR`（显式覆盖——设置此项可使用非默认安装路径）
-2. `$HOME/.agents/skills/claude-code-delegate`（当前 Codex 路径）
-3. `$HOME/.codex/skills/claude-code-delegate`（旧版 Codex 路径）
-
-无需配置 shell profile——解析器使首次运行无需环境变量。
-
-### 作为独立编排器使用
-
-任何 AI 或人类都可以通过阅读 `SKILL.md` 并直接调用 wrapper 来充当编排器：
-
-```bash
-./scripts/run-claude-code.sh --interactive "implement this feature"
-```
-
-或指定项目根目录（当从不同工作目录运行时很有用）：
-
-```bash
-CLAUDE_DELEGATE_DIR=/path/to/claude-code-delegate \
-  ./scripts/run-claude-code.sh --interactive "implement this feature"
-```
-
-编排器负责循环：plan → delegate → review → correct → report。`SKILL.md` 作为定义每一步的契约。
-
-## CLI 用法
-
-```bash
-# 安全首次运行——自动接受文件编辑，工具命令需确认（推荐）
-./scripts/run-claude-code.sh --interactive "你的 prompt"
-
-# 默认（pro 模型、quiet 输出、非交互 bypass）
-./scripts/run-claude-code.sh "你的 prompt"
-
-# Flash 模型
-./scripts/run-claude-code.sh --flash "你的 prompt"
-
-# 覆盖单次调用的 effort 级别
-./scripts/run-claude-code.sh --effort max "你的 prompt"
-
-# 流式输出（调试用）
-./scripts/run-claude-code.sh --stream "你的 prompt"
-
-# 自动化模式——完全非交互，无权限提示（CI / 可信仓库）
-./scripts/run-claude-code.sh --bypass "你的 prompt"
-
-# 禁用项目/用户 MCP 服务器，仅执行实现任务
-./scripts/run-claude-code.sh --mcp none "你的 prompt"
-
-# 从 .mcp.json 仅加载 Jira MCP
-./scripts/run-claude-code.sh --mcp jira "update the issue status"
-
-# 调试时禁用 prompt 适配
-./scripts/run-claude-code.sh --full-context "你的 prompt"
-
-# 允许 Claude Code 在本次调用中生成子 agent
-./scripts/run-claude-code.sh --allow-subagents "你的 prompt"
-
-# 环境变量覆盖
-CLAUDE_DELEGATE_MODEL='deepseek-v4-flash[1m]' \
-CLAUDE_DELEGATE_EFFORT=medium \
-CLAUDE_DELEGATE_PERMISSION_MODE=bypassPermissions \
-CLAUDE_DELEGATE_MCP_MODE=none \
-CLAUDE_DELEGATE_CONTEXT_MODE=full \
-CLAUDE_DELEGATE_SUBAGENTS=on \
-CLAUDE_DELEGATE_HEARTBEAT_SECONDS=15 \
-CLAUDE_DELEGATE_PROFILE_LOG=logs/delegation-profile.jsonl \
-  ./scripts/run-claude-code.sh "你的 prompt"
-```
-
-详见 [SECURITY.md](SECURITY.md) 了解权限模式、风险和信任层级的详细说明。
-
-当被编排器使用时，`SKILL.md` 提供 `resolve_delegator` 辅助函数，在多个安装路径中查找 wrapper 脚本。详见 `SKILL.md` 中的完整解析器定义。
-
-MCP 模式默认为 `all`，保留 Claude Code 正常的 MCP 发现。`--mcp none` 使用严格的空 MCP 配置，`--mcp jira`、`--mcp linear`、`--mcp sequential-thinking` 仅从 `.mcp.json` 或 `CLAUDE_DELEGATE_MCP_CONFIG_PATH` 加载指定的服务器。
-
-wrapper 在调用前对任务分类。Tiny 只读检查使用 flash/low effort/minimal 上下文，routine 编辑和 Jira 操作用 flash/medium effort，debugging 用 pro/high effort，architecture 工作用 pro/max effort，未知 prompt 回退到原始完整 prompt + pro/max。已知任务模板保留完整原始请求；wrapper 不会截断执行上下文来节省 Claude Code 端的 token。压缩输出显示选中的 class、task type、context budget、prompt template、token 用量、费用和可选的 JSONL 画像元数据。
-
-子 agent 默认通过 `--disallowedTools Task Agent` 禁用，防止委派执行器在 quiet 模式缓冲输出时静默生成另一个本地 agent。Quiet 模式立即向 stderr 写入心跳，并每 30 秒更新一次；设置 `CLAUDE_DELEGATE_HEARTBEAT_SECONDS=0` 可禁用。
+| 文件 | 用途 |
+|------|------|
+| `SKILL.md` | 编排器契约 —— 委派循环、解析器、职责 |
+| `scripts/pipeline.py` | 委派流水线 —— 两个传输共享 |
+| `scripts/run-pipeline.py` | CLI 入口 —— 供 shell wrapper 调用 |
+| `scripts/run-claude-code.sh` | Shell wrapper —— 仅做标志解析 |
+| `scripts/mcp_server.py` | MCP server —— 基于 stdio 的类型化 JSON-RPC 工具 |
+| `scripts/compact-claude-stream.py` | 输出解析器 —— JSON 流 → 结构化报告 |
+| `scripts/profile_logger.py` | 画像记录构建和 JSONL 追加 |
+| `scripts/aggregate-profile-log.py` | 画像日志聚合和摘要 |
+| `scripts/jira-safe-text.py` | Markdown → Jira 安全纯文本转换器 |
+| `tests/run_tests.sh` | 测试运行器 —— pipeline、调用和压缩 |
+| `docs/shell-wrapper-reference.md` | 完整 CLI 标志/环境变量参考 |
+| `docs/jira-workflow.md` | Jira 委派约定 |
 
 ## 画像分析
 
-设置 `CLAUDE_DELEGATE_PROFILE_LOG` 在每次委派后将画像元数据追加到 JSONL 文件。每条记录包含 model、effort、task type、token 用量、缓存命中数据、费用和 prompt 字符统计。附带的 `scripts/aggregate-profile-log.py` 读取这些日志并生成简洁的聚合摘要：
+设置 `CLAUDE_DELEGATE_PROFILE_LOG` 记录每次委派：
 
 ```bash
-# 启用画像
-export CLAUDE_DELEGATE_PROFILE_LOG=logs/delegation-profile.jsonl
-./scripts/run-claude-code.sh --flash "你的 prompt"
-
-# 聚合分析（纯文本，默认）
-python3 scripts/aggregate-profile-log.py "$CLAUDE_DELEGATE_PROFILE_LOG"
-
-# 机器可读 JSON 输出
-python3 scripts/aggregate-profile-log.py --json "$CLAUDE_DELEGATE_PROFILE_LOG"
-
-# 或直接传入路径
-python3 scripts/aggregate-profile-log.py logs/delegation-profile.jsonl
+export CLAUDE_DELEGATE_PROFILE_LOG=logs/profile.jsonl
+./scripts/run-claude-code.sh "你的 prompt"
+python3 scripts/aggregate-profile-log.py logs/profile.jsonl
 ```
 
-## 任务分类
+每条记录包含：model、effort、任务类型、token 用量、缓存命中率、成本、prompt 字符数。
 
-wrapper 使用确定性任务分类（无显式 model/effort/permission 覆盖时）：
+## 依赖
 
-| 类别 | 典型任务 | 模型 | Effort | 上下文 |
-|------|---------|------|--------|--------|
-| `tiny` | 只读检查、计数、列表 | flash | low | minimal |
-| `small` | routine 编辑或 Jira 操作 | flash | medium | standard |
-| `medium` | 调试、traceback、回归修复 | pro | high | standard |
-| `large` | 架构、重构、迁移、ADR 工作 | pro | max | expanded |
-| `default` | 未知/模糊任务 | pro | max | 完整 prompt |
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview)
+- `python3`（仅标准库；`pip install mcp` 可选，用于 MCP server）
+- 可访问的 Claude Code 兼容模型
 
-显式标志和环境变量覆盖分类：
-
-```bash
-"$(resolve_delegator)" --flash --effort medium "$PROMPT"
-CLAUDE_DELEGATE_EFFORT=max "$(resolve_delegator)" "$PROMPT"
-```
-
-### Karpathy 编码准则
-
-所有 prompt 模板自动包含以下编码准则（内联在 `scripts/envelope_builder.py` 中）：
-
-- 做外科手术式变更。不引入任务范围外的功能、重构或抽象。
-- 偏爱无聊、简单的代码。三行相似代码好过一次过早抽象。
-- 显式声明假设。如果某件事不显而易见，说明原因。
-- 开始前定义可验证的成功标准。用测试或命令验证。
-- 默认不写注释。只在原因不显而易见时才加一行。
-- 不为不可能发生的场景添加错误处理或验证。
-- 不为假设的未来需求设计。不写半成品实现。
-
-## Pro vs Flash
-
-DeepSeek V4 模型家族的两个能力层级：
-
-| 维度 | Pro | Flash |
-|------|-----|-------|
-| 参数 | 1.6T 总量 / 49B 活跃 | 284B 总量 / 13B 活跃 |
-| 用途 | 高难度推理、架构、调试 | 快速、低成本、routine 编码 |
-| 上下文 | 1M tokens | 1M tokens |
-| Thinking | 支持 | 支持 |
-| 费用 | 较高 | 较低 |
-
-`[1m]` 后缀是 1M token 上下文窗口的路由标签，不是能力层级。Thinking 预算（`--effort`）与模型层级正交——Flash 上的 `effort=max` 不等于 Pro 的能力。
-
-## 环境变量参考
-
-```bash
-CLAUDE_DELEGATE_MODEL=deepseek-v4-pro[1m]     # 模型覆盖
-CLAUDE_DELEGATE_EFFORT=max                     # effort 覆盖
-CLAUDE_DELEGATE_THINKING_TOKENS=0              # 显式 thinking 预算（默认不设）
-CLAUDE_DELEGATE_OUTPUT_MODE=stream             # 输出模式（quiet/stream）
-CLAUDE_DELEGATE_PERMISSION_MODE=acceptEdits    # 权限模式
-CLAUDE_DELEGATE_MCP_MODE=none                  # MCP 模式（all/none/jira/linear/sequential-thinking）
-CLAUDE_DELEGATE_CONTEXT_MODE=full              # 上下文模式（auto/full）
-CLAUDE_DELEGATE_SUBAGENTS=on                   # 子 agent（on/off）
-CLAUDE_DELEGATE_HEARTBEAT_SECONDS=15           # 心跳间隔（0 禁用）
-CLAUDE_DELEGATE_PROFILE_LOG=logs/profile.jsonl # 画像日志路径
-CLAUDE_DELEGATE_DIR=/path/to/project           # wrapper 解析器显式路径
-CLAUDE_DELEGATE_MCP_CONFIG_PATH=/path/.mcp.json # 单服务器模式的 MCP 配置路径
-```
-
-## 项目要求
-
-- 已安装并配置 [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview)
-- 可访问 Claude Code 兼容的模型
-- 用于 JSON 压缩器的 `python3`
-- （可选）MCP 服务器需要 `pip install mcp`
-
-## 许可
+## 许可证
 
 MIT

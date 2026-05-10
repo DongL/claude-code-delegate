@@ -1,90 +1,22 @@
 # Claude Code Delegate
 
-> Use Codex as the architect, Claude Code as the execution runtime, and DeepSeek V4 as the low-cost model backend.
+> Let your AI orchestrator (Codex, Cursor, Claude Code) delegate implementation tasks to Claude Code — with DeepSeek V4 as the low-cost model backend.
 
-Claude Code Delegate is a controlled delegation layer for orchestrator-led AI coding workflows. An orchestrator (Codex, Cursor, or another AI) owns planning and review; this toolkit formats the plan, invokes Claude Code as the execution runtime with a DeepSeek V4 backend, compacts the results, and hands them back for orchestrator review. The wrapper does not approve changes — that is the orchestrator's responsibility.
+An orchestrator owns planning and review. This toolkit handles everything in between: classify the task, wrap it in a prompt template, invoke Claude Code, compact the output, and return a structured result. Neither the wrapper nor the pipeline approves changes — that's the orchestrator's job.
 
-## What This Project Is / Is Not
+## What This Is / Is Not
 
 | This project is... | This project is not... |
 |---|---|
-| A controlled delegation layer for Codex/Cursor-led workflows | A fully autonomous coding agent |
-| A lightweight wrapper that standardizes model, effort, permissions, MCP, and output | "Claude Code connected to DeepSeek" — the model backend is replaceable |
-| A toolkit that separates planning (orchestrator) from execution (Claude Code runtime) | A replacement for the orchestrator's planning and review role |
-| A compactor that returns concise reports for orchestrator review | An approval system — the wrapper does not accept or reject changes |
+| A delegation layer for AI-to-AI coding workflows | A fully autonomous coding agent |
+| A pipeline that standardizes classification, invocation, and output compaction | A replacement for the orchestrator's planning and review role |
+| Transport-agnostic: MCP server + shell wrapper, same pipeline | "Claude Code connected to DeepSeek" — the model backend is replaceable |
 
-## Why Not Use Claude Code with DeepSeek Directly?
+## How Your Orchestrator Calls It
 
-You can use Claude Code directly with any provider:
+### MCP transport (preferred)
 
-```bash
-claude -p "fix the type error in src/cli.py" --model deepseek-v4-flash[1m]
-```
-
-Direct invocation works well for single commands, quick checks, and interactive debugging. The wrapper adds value when:
-
-- **Standardized flags**: Model, effort, permission mode, MCP config, and output mode are set consistently across every invocation — no flag drift between tasks.
-- **Task classification**: The adapter classifies each prompt (tiny read-only, routine edit, debugging, architecture) and selects appropriate model tier and effort level automatically.
-- **Output compaction**: Raw Claude Code JSON stream is compacted into a concise report (changed files, command results, test output, errors) — the orchestrator does not need to parse streaming JSON.
-- **Safety defaults**: Subagents are disabled by default to prevent silent recursion. A heartbeat confirms the executor is still running during long tasks.
-- **Profile metadata**: Each delegation records model, effort, token usage, and cost for trend analysis.
-
-Use direct `claude -p` when you need a quick answer. Use the wrapper when you want consistent, reviewable delegation with standardized output.
-
-## Overview
-
-Claude Code Delegate is **not** a fully autonomous coding agent. The orchestrator authors the plan and reviews results; the wrapper does not approve changes.
-
-Instead of letting one agent plan, modify files, and approve its own work, this project separates the workflow into two roles:
-
-- **Orchestrator** — Codex, Cursor, or another high-level agent that owns planning and review.
-- **Execution runtime** — Claude Code running with DeepSeek V4 as the model backend, focused on implementation.
-
-![Architecture diagram](docs/assets/claude-code-delegate-architecture.svg)
-
-The workflow is:
-
-1. **Plan** — The orchestrator reads project context and produces a concrete implementation plan with ownership boundaries and verification commands.
-2. **Delegate** — The adapter classifies the task, selects a prompt envelope, and applies model/effort/permission/output settings. The wrapper invokes Claude Code with consistent flags.
-3. **Execute** — Claude Code runs the implementation using the configured model backend (DeepSeek V4 by default). It edits files, runs commands, and generates tests.
-4. **Compact** — The wrapper captures Claude Code's JSON output and pipes it through `compact-claude-stream.py`, which returns a concise report: changed files, command output, test results, errors, and execution metadata. The wrapper does **not** approve or reject changes.
-5. **Review** — The orchestrator inspects `git diff`, test output, and the compact report, then decides whether to accept, reject, or request a targeted correction pass.
-6. **Report** — The final summary from the orchestrator states what changed, which tests ran, and any remaining risks.
-
-With the shell wrapper, steps 2–4 are separate CLI invocations. With MCP transport, the orchestrator calls `delegate_task` and the server handles classification, envelope, invocation, and compaction in one typed JSON-RPC call — the same pipeline, different interface.
-
-You can use this project as a [Codex skill](#as-a-codex-skill), as a [standalone orchestrator](#as-a-standalone-orchestrator) through the shell wrapper, or as an [MCP server](#mcp-server) for typed JSON-RPC discovery.
-
-## Components
-
-| File | Purpose |
-|------|---------|
-| `SKILL.md` | Orchestrator contract — defines the delegation loop, resolver, and orchestrator responsibilities |
-| `scripts/run-claude-code.sh` | Wrapper — standardizes model, effort, permission mode, MCP config, and output format |
-| `scripts/delegation-adapter.py` | Adapter — classifies task size/type, selects prompt template, and sets routing parameters |
-| `scripts/compact-claude-stream.py` | Compactor — reduces raw JSON stream to a concise changed-files + test-results report for the orchestrator |
-| `scripts/aggregate-profile-log.py` | Profile aggregator — reads CLAUDE_DELEGATE_PROFILE_LOG JSONL and produces summaries |
-| `scripts/jira-safe-text.py` | Jira formatter — strips Markdown for plain-text Jira MCP comments |
-| `scripts/mcp_server.py` | MCP server — exposes delegation tools (classify, delegate, aggregate, format_jira_text) over stdio JSON-RPC |
-| `tests/run_tests.sh` | Test runner — covers wrapper flag parsing, adapter classification, and compactor behavior (not agent correctness) |
-| `docs/jira-workflow.md` | Jira-specific delegation conventions |
-| `docs/shell-wrapper-reference.md` | Shell wrapper CLI reference — all flags, env vars, and modes for `scripts/run-claude-code.sh` |
-
-## Operating Modes
-
-The wrapper supports three permission modes for different trust levels:
-
-| Mode | Flag | Permission Setting | Use Case |
-|------|------|-------------------|----------|
-| Safe first run | `--interactive` | `acceptEdits` — auto-accepts file edits, prompts on tool commands | First-time use, debugging, or when you want to review commands before they execute |
-| Controlled delegation | *(default)* | `bypassPermissions` — fully non-interactive | Normal headless delegation; orchestrator reviews results afterward |
-| Automation mode | `--bypass` | `bypassPermissions` — same as default, explicit alias | CI/CD pipelines, trusted repositories, scripts |
-
-> **⚠️ Review caveat**: Permission mode only controls whether Claude Code prompts during execution. The wrapper never approves or rejects changes — that is the orchestrator's responsibility. Always inspect `git diff` and test output before accepting delegated work, regardless of permission mode.
-
-**MCP transport**: `scripts/mcp_server.py` exposes delegation as an MCP server over stdio JSON-RPC. An MCP-compatible host can discover the four tools (`classify_task`, `delegate_task`, `aggregate_profile`, `format_jira_text`) via `tools/list` and invoke them through typed JSON-RPC calls. Requires `pip install mcp`. The shell wrapper remains the primary transport and does not need the `mcp` package — the MCP server is an additive discovery layer for orchestrators that speak MCP.
-
-Example `.mcp.json` snippet (do not create a real file):
+Add to your project's `.mcp.json`:
 
 ```json
 {
@@ -97,15 +29,65 @@ Example `.mcp.json` snippet (do not create a real file):
 }
 ```
 
-## Quick Start
-
-### One-command install
-
-curl -fsSL https://raw.githubusercontent.com/DongL/claude-code-delegate/main/install.sh | bash
-
-### Manual install
+Your orchestrator discovers four tools via `tools/list` and delegates with one typed call:
 
 ```
+delegate_task(prompt="fix the type error in src/cli.py")
+// → { classification, result, usage, cost_usd, terminal_reason }
+```
+
+Also available: `classify_task`, `aggregate_profile`, `format_jira_text`. Requires `pip install mcp`.
+
+### Shell wrapper (fallback)
+
+Same pipeline, invoked through a CLI:
+
+```bash
+./scripts/run-claude-code.sh "fix the type error in src/cli.py"
+```
+
+The wrapper parses flags, calls `scripts/run-pipeline.py`, and prints a compact report. No `mcp` package needed. Full CLI reference in [docs/shell-wrapper-reference.md](docs/shell-wrapper-reference.md).
+
+Both transports share `scripts/pipeline.py` — the same classify → envelope → invoke → compact → profile logic.
+
+## The Delegation Loop
+
+1. **Plan** — The orchestrator reads project context and produces a concrete plan with ownership boundaries and verification commands.
+2. **Delegate** — The pipeline classifies the task, wraps it in a prompt template, resolves model/effort/permission settings, invokes Claude Code, and compacts the output.
+3. **Execute** — Claude Code implements the plan using the configured model backend (DeepSeek V4 by default).
+4. **Compact** — The pipeline parses Claude Code's JSON output into a concise report: result text, token usage, cost, and terminal status.
+5. **Review** — The orchestrator inspects `git diff`, test output, and the compact report, then decides to accept, reject, or request a correction pass.
+6. **Report** — The orchestrator gives a final summary: what changed, which tests ran, residual risk.
+
+Correction iterations repeat steps 2–5 until the diff is correct.
+
+## Why Not `claude -p` Directly?
+
+```bash
+claude -p "fix the type error" --model deepseek-v4-flash[1m]
+```
+
+Direct invocation works for single commands. The delegation layer adds value when:
+
+- **Task classification** — automatically selects model tier and effort based on prompt content (flash for edits, pro for debugging/architecture).
+- **Prompt templates** — wraps the orchestrator's plan in a task envelope with coding guidelines and ownership boundaries.
+- **Output compaction** — raw JSON stream becomes a structured report the orchestrator can parse programmatically.
+- **Safety defaults** — subagents disabled, heartbeat confirms the executor is still alive, profile metadata recorded.
+- **Consistent invocation** — model, effort, permissions, MCP config identical across every delegation.
+
+Use `claude -p` for quick answers. Use the delegation layer when you want consistent, reviewable, AI-to-AI execution.
+
+## Installation
+
+### One-command
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DongL/claude-code-delegate/main/install.sh | bash
+```
+
+### Manual
+
+```bash
 git clone https://github.com/DongL/claude-code-delegate.git ~/.claude-code-delegate
 mkdir -p ~/.agents/skills
 ln -sfn ~/.claude-code-delegate ~/.agents/skills/claude-code-delegate
@@ -113,13 +95,24 @@ bash ~/.claude-code-delegate/tests/run_tests.sh
 pip3 install mcp  # optional, for MCP server
 ```
 
+### As a Codex skill
+
+Symlink into the skill directory so Codex discovers `SKILL.md`:
+
+```bash
+mkdir -p ~/.agents/skills
+ln -sfn "$PWD" ~/.agents/skills/claude-code-delegate
+```
+
+The resolver in `SKILL.md` finds the wrapper across these paths:
+
+1. `$CLAUDE_DELEGATE_DIR` — explicit override
+2. `$HOME/.agents/skills/claude-code-delegate` — current Codex path
+3. `$HOME/.codex/skills/claude-code-delegate` — legacy Codex path
+
 ## Provider Setup
 
-This project defaults to DeepSeek V4 models. Before running the wrapper, configure Claude Code to use DeepSeek as the model backend. Two options:
-
-### Option A: Environment variables (recommended)
-
-Set these in your shell profile (`.zshrc`, `.bashrc`) or before each session:
+This project defaults to DeepSeek V4 models via environment variables:
 
 ```bash
 export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
@@ -132,155 +125,70 @@ export CLAUDE_CODE_SUBAGENT_MODEL=deepseek-v4-flash[1m]
 export CLAUDE_CODE_EFFORT_LEVEL=max
 ```
 
-Get your API key at [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys).
-
-Verify it works:
+Get your API key at [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys). Verify:
 
 ```bash
 claude -p "hello" --model deepseek-v4-flash[1m]
 ```
 
-### Option B: cc-switch (GUI)
+Or use [cc-switch](https://github.com/farion1231/cc-switch) for GUI-based provider management with 50+ presets.
 
-[cc-switch](https://github.com/farion1231/cc-switch) is a cross-platform desktop app that manages provider configuration across Claude Code, Codex, and other AI tools. It ships with 50+ provider presets including DeepSeek — no manual env vars needed. Install it, select DeepSeek from the provider list, and click to activate.
-
-> **Caveat**: Model names and provider URLs vary by Claude Code provider adapter or proxy — cc-switch, OpenRouter, custom endpoints, and other adapters may use different identifiers. If `claude -p "hello" --model deepseek-v4-flash[1m]` fails, debug your provider configuration before assuming the wrapper is the problem. The wrapper passes the model name through unchanged; it does not translate or remap model identifiers.
-
----
-
-## Real-World Demos
+Override the model for a single delegation:
 
 ```bash
-# Fix a README typo
-./scripts/run-claude-code.sh --interactive "fix the typo 'Recieve' to 'Receive' in README.md"
-
-# Add a unit test for an existing function
-./scripts/run-claude-code.sh --interactive "add a unit test for the parse_args() function in src/cli.py"
-
-# Review a PR diff and suggest improvements
-./scripts/run-claude-code.sh --interactive "review git diff HEAD~1 and report issues"
+CLAUDE_DELEGATE_MODEL=claude-sonnet-4-6 ./scripts/run-claude-code.sh "your prompt"
 ```
 
-## Usage Modes
+## CLI Reference
 
-### As a Codex skill
+| Flag | Effect |
+|------|--------|
+| *(none)* | Pro model, quiet output, bypass permissions (default) |
+| `--pro` / `--flash` | Model tier selection |
+| `--effort low\|medium\|high\|max` | Reasoning budget override |
+| `--interactive` | Auto-accept edits, prompt on tool commands (safe first run) |
+| `--bypass` | Fully non-interactive (explicit alias for default) |
+| `--stream` | Raw stream-json output (for debugging) |
+| `--mcp all\|none\|jira\|linear\|sequential-thinking` | MCP server loading |
+| `--full-context` | Skip prompt template wrapping |
+| `--allow-subagents` | Allow Claude Code to spawn subagents |
 
-Symlink the project into a Codex skill directory so Codex discovers `SKILL.md` and can invoke the delegation loop:
+Env var equivalents and full details: [docs/shell-wrapper-reference.md](docs/shell-wrapper-reference.md). Permission modes and security: [SECURITY.md](SECURITY.md).
+
+## Components
+
+| File | Purpose |
+|------|---------|
+| `SKILL.md` | Orchestrator contract — delegation loop, resolver, responsibilities |
+| `scripts/pipeline.py` | Delegation pipeline — shared by both transports |
+| `scripts/run-pipeline.py` | CLI entry point for shell wrapper consumers |
+| `scripts/run-claude-code.sh` | Shell wrapper — flag parsing only |
+| `scripts/mcp_server.py` | MCP server — typed JSON-RPC tools over stdio |
+| `scripts/compact-claude-stream.py` | Output parser — JSON stream → structured report |
+| `scripts/profile_logger.py` | Profile record construction and JSONL append |
+| `scripts/aggregate-profile-log.py` | Profile log aggregation and summarization |
+| `scripts/jira-safe-text.py` | Markdown → Jira-safe plain text converter |
+| `tests/run_tests.sh` | Test runner — pipeline, invocation, and compaction |
+| `docs/shell-wrapper-reference.md` | Full CLI flag/env-var reference |
+| `docs/jira-workflow.md` | Jira-specific delegation conventions |
+
+## Profiling
+
+Set `CLAUDE_DELEGATE_PROFILE_LOG` to record each delegation:
 
 ```bash
-# Preferred (current Codex path)
-mkdir -p ~/.agents/skills
-ln -sfn "$PWD" ~/.agents/skills/claude-code-delegate
-
-# Legacy Codex path, only if your Codex build still uses it
-mkdir -p ~/.codex/skills
-ln -sfn "$PWD" ~/.codex/skills/claude-code-delegate
+export CLAUDE_DELEGATE_PROFILE_LOG=logs/profile.jsonl
+./scripts/run-claude-code.sh "your prompt"
+python3 scripts/aggregate-profile-log.py logs/profile.jsonl
 ```
 
-The resolver in `SKILL.md` finds the wrapper script in any of these locations:
-
-1. `$CLAUDE_DELEGATE_DIR` (explicit override — set this to use a non-default install path)
-2. `$HOME/.agents/skills/claude-code-delegate` (current Codex path)
-3. `$HOME/.codex/skills/claude-code-delegate` (legacy Codex path)
-
-No shell-profile setup required — the resolver makes first-run work without env vars.
-
-### As a standalone orchestrator
-
-Any AI or human can act as the orchestrator by reading `SKILL.md` and invoking the wrapper directly:
-
-```bash
-./scripts/run-claude-code.sh --interactive "implement this feature"
-```
-
-Or with an explicit project root (useful when running from a different working directory):
-
-```bash
-CLAUDE_DELEGATE_DIR=/path/to/claude-code-delegate \
-  ./scripts/run-claude-code.sh --interactive "implement this feature"
-```
-
-The orchestrator is responsible for the loop: plan, delegate, review, correct, report. `SKILL.md` serves as the contract defining each step.
-
-## CLI Usage
-
-```bash
-# Safe first run — auto-accepts file edits, prompts on tool commands (recommended)
-./scripts/run-claude-code.sh --interactive "your prompt here"
-
-# Default (pro model, quiet output, non-interactive bypass)
-./scripts/run-claude-code.sh "your prompt here"
-
-# Flash model
-./scripts/run-claude-code.sh --flash "your prompt here"
-
-# Override classified effort for one invocation
-./scripts/run-claude-code.sh --effort max "your prompt here"
-
-# Stream output (for debugging)
-./scripts/run-claude-code.sh --stream "your prompt here"
-
-# Automation mode — fully non-interactive, no permission prompts (CI / trusted repos)
-./scripts/run-claude-code.sh --bypass "your prompt here"
-
-# Disable project/user MCP servers for implementation-only tasks
-./scripts/run-claude-code.sh --mcp none "your prompt here"
-
-# Load only Jira MCP from .mcp.json
-./scripts/run-claude-code.sh --mcp jira "update the issue status"
-
-# Disable prompt adaptation while debugging
-./scripts/run-claude-code.sh --full-context "your prompt here"
-
-# Allow Claude Code to spawn its own subagents for this invocation
-./scripts/run-claude-code.sh --allow-subagents "your prompt here"
-
-# Environment variable overrides
-CLAUDE_DELEGATE_MODEL='deepseek-v4-flash[1m]' \
-CLAUDE_DELEGATE_EFFORT=medium \
-CLAUDE_DELEGATE_PERMISSION_MODE=bypassPermissions \
-CLAUDE_DELEGATE_MCP_MODE=none \
-CLAUDE_DELEGATE_CONTEXT_MODE=full \
-CLAUDE_DELEGATE_SUBAGENTS=on \
-CLAUDE_DELEGATE_HEARTBEAT_SECONDS=15 \
-CLAUDE_DELEGATE_PROFILE_LOG=logs/delegation-profile.jsonl \
-  ./scripts/run-claude-code.sh "your prompt here"
-```
-
-See [SECURITY.md](SECURITY.md) for a detailed breakdown of permission modes, risks, and trust tiers.
-
-When consumed by an orchestrator, `SKILL.md` provides a `resolve_delegator` helper that finds the wrapper script across multiple install paths. See `SKILL.md` for the full resolver definition.
-
-MCP mode defaults to `all`, which preserves Claude Code's normal MCP discovery. `--mcp none` uses a strict empty MCP config, while `--mcp jira`, `--mcp linear`, and `--mcp sequential-thinking` load only that server from `.mcp.json` or `CLAUDE_DELEGATE_MCP_CONFIG_PATH`.
-
-The wrapper classifies tasks before invocation. Tiny read-only checks use flash/low effort/minimal context, routine edits and Jira operations use flash/medium effort, debugging uses pro/high effort, architecture work uses pro/max effort, and unknown prompts fall back to the original full prompt with pro/max. Known task templates preserve the full original request; the wrapper does not truncate executor context to save Claude Code-side tokens. Compact output shows the selected class, task type, context budget, prompt template, token usage, cost, and optional JSONL profiling metadata.
-
-Subagents are disabled by default via `--disallowedTools Task Agent` so a delegated executor does not silently spawn another local agent while quiet mode buffers output. Quiet mode writes a heartbeat to stderr immediately and every 30 seconds; set `CLAUDE_DELEGATE_HEARTBEAT_SECONDS=0` to disable it.
-
-## Profiling Analysis
-
-Set `CLAUDE_DELEGATE_PROFILE_LOG` to append profiling metadata to a JSONL file after each delegation. Each record contains model, effort, task type, token usage, cache hit data, cost, and prompt character counts. The bundled `scripts/aggregate-profile-log.py` reads these logs and produces a concise aggregate summary:
-
-```bash
-# Enable profiling
-export CLAUDE_DELEGATE_PROFILE_LOG=logs/delegation-profile.jsonl
-./scripts/run-claude-code.sh --flash "your prompt here"
-
-# Aggregate analysis (plain text, default)
-python3 scripts/aggregate-profile-log.py "$CLAUDE_DELEGATE_PROFILE_LOG"
-
-# Machine-readable JSON output
-python3 scripts/aggregate-profile-log.py --json "$CLAUDE_DELEGATE_PROFILE_LOG"
-
-# Or pass the path directly
-python3 scripts/aggregate-profile-log.py logs/delegation-profile.jsonl
-```
+Each record: model, effort, task type, token usage, cache hit ratio, cost, prompt character counts.
 
 ## Requirements
 
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) installed and configured
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview)
+- `python3` (standard library only; `pip install mcp` optional for MCP server)
 - Access to a Claude Code-compatible model
-- `python3` available for the JSON compactor
 
 ## License
 
