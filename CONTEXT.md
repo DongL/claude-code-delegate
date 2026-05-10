@@ -39,3 +39,15 @@ The practice of repeating correction passes until the diff is correct, rather th
 ## Script Resolver
 
 The `resolve_delegator` function in SKILL.md that locates the wrapper script at runtime. It checks three locations in order: `CLAUDE_DELEGATE_DIR` (explicit override), `~/.agents/skills/claude-code-delegate` (current Codex path), and `~/.codex/skills/claude-code-delegate` (legacy). This avoids requiring environment variable setup for first-time Codex users.
+
+## MCP Server
+
+The `scripts/mcp_server.py` entry point that exposes `classify_task`, `delegate_task`, `aggregate_profile`, and `format_jira_text` as MCP tools over stdio JSON-RPC transport. Allows an MCP-compatible orchestrator to discover and invoke delegation operations through typed contracts rather than shell invocation. Requires `pip install mcp`.
+
+## MCP Tool
+
+A typed JSON-RPC operation registered by the MCP server. Each tool has a name, description, and typed input schema (`inputSchema`). The four bundled tools are `classify_task` (prompt classification), `delegate_task` (full delegation pipeline with classify → envelope → invoke → compact), `aggregate_profile` (profile log analysis from CLAUDE_DELEGATE_PROFILE_LOG JSONL), and `format_jira_text` (Markdown-to-plain-text conversion via `jira-safe-text.py`).
+
+## MCP Transport
+
+The stdio JSON-RPC protocol used by `scripts/mcp_server.py` to communicate with MCP hosts. Each message is a single newline-delimited JSON line (`\n`-separated JSON-RPC). Distinct from the shell-wrapper transport (`scripts/run-claude-code.sh`) which uses CLI flags, exit codes, and stdout/stderr. The MCP transport provides typed contracts and structured errors; the shell wrapper provides universal fallback without Python package dependencies beyond the standard library.

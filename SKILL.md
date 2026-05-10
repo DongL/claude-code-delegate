@@ -209,6 +209,46 @@ Each template preserves the full original request, task goal, allowed scope, con
 
 Quiet output includes model, effort, permission mode, MCP mode, class, task type, context budget, prompt template, prompt character counts, usage tokens, cache-read tokens, cache-hit ratio when available, cost, and terminal reason. Prompt reduction is expected to be zero for normal templated prompts because the original request is preserved. Set `CLAUDE_DELEGATE_PROFILE_LOG` to append the same non-secret metadata to JSONL for trend analysis. The bundled `scripts/aggregate-profile-log.py` reads these JSONL records and outputs a concise aggregate summary (plain text by default, `--json` for machine-readable).
 
+## MCP Transport
+
+The bundled `scripts/mcp_server.py` exposes delegation as MCP tools over stdio JSON-RPC transport, providing an alternative to the shell wrapper. Both transports use the same underlying classifier, envelope builder, invoker, and compactor — the MCP server is a typed contract layer on top of the same code.
+
+### Adding to .mcp.json
+
+```json
+{
+  "mcpServers": {
+    "claude-code-delegate": {
+      "command": "python3",
+      "args": ["scripts/mcp_server.py"]
+    }
+  }
+}
+```
+
+Add this to your project `.mcp.json` (or the orchestrator's `.mcp.json`) and the MCP host will discover and invoke delegation tools automatically.
+
+### Available Tools
+
+| Tool | Purpose |
+|------|---------|
+| `classify_task` | Classify a prompt by size, type, model tier, effort, permission mode, and context budget |
+| `delegate_task` | Full delegation pipeline: classify, envelope, invoke, compact, return structured result with usage and cost |
+| `aggregate_profile` | Aggregate `CLAUDE_DELEGATE_PROFILE_LOG` JSONL into a text or JSON summary |
+| `format_jira_text` | Strip Markdown formatting for Jira-safe plain text |
+
+### MCP vs Shell Wrapper
+
+| Axis | Shell Wrapper | MCP Transport |
+|------|---------------|---------------|
+| Discovery | Orchestrator must know the resolver path | MCP client discovers tools via `tools/list` |
+| Contract | CLI flags and exit codes | Typed JSON-RPC request/response with structured errors |
+| Errors | Exit code + stderr | JSON-RPC error objects with standard codes |
+| Invocation | `"$(resolve_delegator)" "$PROMPT"` | `tools/call` with typed arguments |
+| Dependencies | bash + python3 | Requires `pip install mcp` |
+
+The shell wrapper remains the primary transport and does not require the `mcp` package. The MCP server is additive — when an MCP host is available, it provides typed discovery and structured responses without changing the shell-wrapper interface.
+
 ## Prompt Requirements
 
 The prompt sent to Claude Code must include:

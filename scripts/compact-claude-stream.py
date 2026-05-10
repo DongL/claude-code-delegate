@@ -7,8 +7,9 @@ import json
 import os
 import sys
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
+
+from profile_logger import append_profile_record
 
 
 def _fmt_usage(usage: dict[str, Any]) -> str:
@@ -26,25 +27,28 @@ def _fmt_usage(usage: dict[str, Any]) -> str:
     return ", ".join(parts)
 
 
-def main() -> int:
+def parse_compact_output(raw_json: str) -> dict[str, Any]:
+    """Parse raw Claude Code JSON output into a structured dict.
+
+    Handles both single JSON objects and newline-delimited stream-json.
+    Returns result text, usage, cost, model, effort, and other metadata.
+    """
     init: dict[str, Any] | None = None
     result: dict[str, Any] | None = None
     errors: list[str] = []
-    raw = sys.stdin.read()
 
     events: list[dict[str, Any]] = []
     try:
-        parsed = json.loads(raw)
+        parsed = json.loads(raw_json)
         if isinstance(parsed, dict):
             events.append(parsed)
         elif isinstance(parsed, list):
             events.extend(item for item in parsed if isinstance(item, dict))
     except json.JSONDecodeError:
-        for line in raw.splitlines():
+        for line in raw_json.splitlines():
             line = line.strip()
             if not line:
                 continue
-
             try:
                 event = json.loads(line)
             except json.JSONDecodeError:
@@ -72,6 +76,51 @@ def main() -> int:
     mcp_mode = (init or {}).get("mcpMode") or os.environ.get(
         "CLAUDE_DELEGATE_OBSERVED_MCP_MODE"
     )
+
+    result_text = (result or {}).get("result") or ""
+    usage = (result or {}).get("usage")
+    cost_usd = (result or {}).get("total_cost_usd", 0.0)
+    terminal_reason = (result or {}).get("terminal_reason") or ""
+    is_error = bool((result or {}).get("is_error"))
+    cwd = (init or {}).get("cwd") or os.environ.get("CLAUDE_DELEGATE_OBSERVED_CWD")
+
+    return {
+        "result": result_text,
+        "usage": usage if isinstance(usage, dict) else {},
+        "cost_usd": cost_usd if isinstance(cost_usd, (int, float)) else 0.0,
+        "terminal_reason": terminal_reason,
+        "model": model,
+        "effort": effort,
+        "permission_mode": permission_mode,
+        "mcp_mode": mcp_mode,
+        "cwd": cwd,
+        "is_error": is_error,
+        "has_init": init is not None,
+        "has_result": result is not None,
+        "errors": errors,
+    }
+
+
+def main() -> int:
+    raw = sys.stdin.read()
+    parsed = parse_compact_output(raw)
+
+    model = parsed["model"]
+    effort = parsed["effort"]
+    permission_mode = parsed["permission_mode"]
+    mcp_mode = parsed["mcp_mode"]
+    result = {
+        "result": parsed["result"],
+        "usage": parsed["usage"],
+        "total_cost_usd": parsed["cost_usd"],
+        "terminal_reason": parsed["terminal_reason"],
+        "is_error": parsed["is_error"],
+    }
+    errors: list[str] = list(parsed["errors"])
+
+    if parsed["is_error"] and "error result" not in errors:
+        errors.append("error result")
+
     task_class = os.environ.get("CLAUDE_DELEGATE_OBSERVED_CLASS")
     task_type = os.environ.get("CLAUDE_DELEGATE_OBSERVED_TASK_TYPE")
     context_budget = os.environ.get("CLAUDE_DELEGATE_OBSERVED_CONTEXT_BUDGET")
@@ -80,7 +129,9 @@ def main() -> int:
     original_prompt_chars = os.environ.get("CLAUDE_DELEGATE_ORIGINAL_PROMPT_CHARS")
     prepared_prompt_chars = os.environ.get("CLAUDE_DELEGATE_PREPARED_PROMPT_CHARS")
     prompt_reduction_pct = os.environ.get("CLAUDE_DELEGATE_PROMPT_REDUCTION_PCT")
-    cwd = (init or {}).get("cwd") or os.environ.get("CLAUDE_DELEGATE_OBSERVED_CWD")
+    has_init = parsed["has_init"]
+    has_result = parsed["has_result"]
+    cwd = parsed.get("cwd")
 
     has_profile = any(
         (
@@ -123,7 +174,7 @@ def main() -> int:
         if cwd:
             print(f"- cwd: {cwd}")
 
-    if result:
+    if has_result:
         if model or effort or permission_mode or mcp_mode or has_profile or cwd:
             print()
         print("Result")
@@ -167,13 +218,10 @@ def main() -> int:
             "terminalReason": result.get("terminal_reason") if isinstance(result, dict) else None,
             "isError": bool(result.get("is_error")) if isinstance(result, dict) else bool(errors),
         }
-        path = Path(profile_log)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+        append_profile_record(record, profile_log)
 
     if errors:
-        if init or result:
+        if has_init or has_result:
             print()
         print("Stream Warnings")
         for error in errors[:5]:
@@ -181,9 +229,9 @@ def main() -> int:
         if len(errors) > 5:
             print(f"- ... {len(errors) - 5} more")
 
-    if not init and not result and not errors:
+    if not has_init and not has_result and not errors:
         return 1
-    if result and result.get("is_error") is True:
+    if has_result and result.get("is_error") is True:
         return 1
     return 0
 
