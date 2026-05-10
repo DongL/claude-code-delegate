@@ -21,6 +21,8 @@ Required loop:
 
 ## Invocation
 
+Two transports are available: the shell wrapper (this section) and the MCP server (see [MCP Transport](#mcp-transport) below). Both use the same classifier, envelope builder, invoker, and compactor.
+
 Always invoke Claude Code through the bundled wrapper. The orchestrator resolves the script path using this fallback chain — no mandatory setup step required:
 
 ```bash
