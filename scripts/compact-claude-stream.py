@@ -9,7 +9,7 @@ import sys
 from datetime import datetime, timezone
 from typing import Any
 
-from profile_logger import append_profile_record
+from profile_logger import append_profile_record, build_profile_record
 
 
 def _fmt_usage(usage: dict[str, Any]) -> str:
@@ -198,26 +198,25 @@ def main() -> int:
 
     profile_log = os.environ.get("CLAUDE_DELEGATE_PROFILE_LOG")
     if profile_log:
-        usage = result.get("usage") if isinstance(result, dict) else None
-        record = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "model": model,
-            "effort": effort,
-            "permissionMode": permission_mode,
-            "mcpMode": mcp_mode,
-            "class": task_class,
-            "taskType": task_type,
-            "contextBudget": context_budget,
-            "promptMode": prompt_mode,
-            "promptTemplate": prompt_template,
-            "originalPromptChars": int(original_prompt_chars or 0),
-            "preparedPromptChars": int(prepared_prompt_chars or 0),
-            "promptReductionPct": int(prompt_reduction_pct or 0),
-            "usage": usage if isinstance(usage, dict) else {},
-            "totalCostUsd": result.get("total_cost_usd") if isinstance(result, dict) else None,
-            "terminalReason": result.get("terminal_reason") if isinstance(result, dict) else None,
-            "isError": bool(result.get("is_error")) if isinstance(result, dict) else bool(errors),
-        }
+        result_dict = result if isinstance(result, dict) else {}
+        record = build_profile_record(
+            model=model,
+            effort=effort,
+            permission_mode=permission_mode,
+            mcp_mode=mcp_mode,
+            task_class=task_class,
+            task_type=task_type,
+            context_budget=context_budget,
+            prompt_mode=prompt_mode,
+            prompt_template=prompt_template,
+            original_prompt_chars=int(original_prompt_chars or 0),
+            prepared_prompt_chars=int(prepared_prompt_chars or 0),
+            prompt_reduction_pct=int(prompt_reduction_pct or 0),
+            usage=result_dict.get("usage"),
+            total_cost_usd=result_dict.get("total_cost_usd"),
+            terminal_reason=result_dict.get("terminal_reason"),
+            is_error=bool(result_dict.get("is_error")) if result_dict else bool(errors),
+        )
         append_profile_record(record, profile_log)
 
     if errors:
