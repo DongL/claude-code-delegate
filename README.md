@@ -174,7 +174,21 @@ Env var equivalents and full details: [docs/shell-wrapper-reference.md](docs/she
 
 ## Profiling
 
-Set `CLAUDE_DELEGATE_PROFILE_LOG` to record each delegation:
+Set `CLAUDE_DELEGATE_PROFILE_LOG` when delegating to record each invocation:
+
+```
+delegate_task(prompt="fix the typo")
+// profiling appends to CLAUDE_DELEGATE_PROFILE_LOG automatically
+```
+
+Then read the aggregate via MCP:
+
+```
+aggregate_profile(profile_log_path="logs/profile.jsonl", format="text")
+// → "Records: 12  Success: 10  Error: 2 ..."
+```
+
+Shell fallback for the same operations:
 
 ```bash
 export CLAUDE_DELEGATE_PROFILE_LOG=logs/profile.jsonl
