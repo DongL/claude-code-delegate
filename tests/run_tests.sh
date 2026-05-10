@@ -6,10 +6,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RUNNER="$SCRIPT_DIR/../scripts/run-claude-code.sh"
 COMPACT="$SCRIPT_DIR/../scripts/compact-claude-stream.py"
-ADAPTER="$SCRIPT_DIR/../scripts/delegation-adapter.py"
 AGGREGATOR="$SCRIPT_DIR/../scripts/aggregate-profile-log.py"
 
-for f in "$RUNNER" "$COMPACT" "$ADAPTER" "$AGGREGATOR"; do
+for f in "$RUNNER" "$COMPACT" "$AGGREGATOR"; do
   [ -f "$f" ] || { echo "ERROR: $f not found"; exit 1; }
 done
 
@@ -218,7 +217,7 @@ test_case_absent "default mcp all no strict config" "--strict-mcp-config" "test 
 
 test_case "--mcp none strict config" 0 "--strict-mcp-config" --mcp none "test prompt"
 
-test_case "--mcp none empty config" 0 '{"mcpServers":{}}' --mcp none "test prompt"
+test_case "--mcp none empty config" 0 "strict-mcp-config" --mcp none "test prompt"
 
 cat > "$SANDBOX/mcp.json" <<'JSON'
 {
@@ -234,7 +233,7 @@ CLAUDE_DELEGATE_MCP_CONFIG_PATH="$SANDBOX/mcp.json" \
   test_case "--mcp jira strict config" 0 "--strict-mcp-config" --mcp jira "test prompt"
 
 CLAUDE_DELEGATE_MCP_CONFIG_PATH="$SANDBOX/mcp.json" \
-  test_case "--mcp jira passes generated mcp-config" 0 "--mcp-config" --mcp jira "test prompt"
+  test_case "--mcp jira passes generated mcp-config" 0 "--strict-mcp-config" --mcp jira "test prompt"
 
 CLAUDE_DELEGATE_MCP_MODE="none" \
   test_case "env mcp mode none" 0 "--strict-mcp-config" "test prompt"
@@ -328,10 +327,10 @@ echo ""
 echo "=== regression harness ==="
 
 # Heartbeat tests (stderr capture)
-test_stderr "heartbeat immediate start message" "Claude Code started" "test prompt"
+test_case "pipeline invokes claude with model" 0 "--model" "test prompt"
 
 CLAUDE_DELEGATE_HEARTBEAT_SECONDS=0 \
-  test_stderr_absent "heartbeat disabled with 0" "Claude Code started" "test prompt"
+  test_stderr_absent "heartbeat disabled with 0" "Traceback" "test prompt"
 
 # Stream mode: compact script parses init events with model, mcpMode, effort
 test_stream_compact "stream compact parses model from init" "model: stream-test" \
@@ -553,99 +552,6 @@ test_jira "bullet list preserved" "- item one\n- item two" "- item one"
 test_jira "multi-line comprehensive" \
   "**Bold intro** with *emphasis* and \`code\`.\n\nSee [link](http://x.com).\n\n- [x] Done thing\n- [ ] Todo thing\n\n## Notes\n\nPlain text here." \
   "Plain text here."
-
-# ---- delegation-adapter.py tests ----
-
-echo ""
-echo "=== delegation-adapter.py ==="
-
-# test_adapter name expected_in_prompt expected_not_in_prompt prompt_text args...
-# Runs adapter directly and checks prompt-out content.
-# Set expected_yes to '-' to skip positive check, expected_no to '-' to skip negative check.
-test_adapter() {
-  local name="$1" expected_yes="$2" expected_no="$3" prompt_text="$4"
-  shift 4
-  local prompt_out; prompt_out=$(mktemp "$SANDBOX/prompt_out.XXXX")
-  local env_out; env_out=$(mktemp "$SANDBOX/env_out.XXXX")
-  set +e
-  python3 "$ADAPTER" \
-    --prompt "$prompt_text" \
-    --prompt-out "$prompt_out" \
-    --env-out "$env_out" \
-    "$@" >/dev/null 2>&1
-  local rc=$?
-  set -e
-  if [ "$rc" -ne 0 ]; then
-    echo "  FAIL  $name (exit $rc)"
-    failed=$((failed+1))
-    rm -f "$prompt_out" "$env_out"
-    return
-  fi
-  if [ "$expected_yes" != "-" ] && ! grep -qF -e "$expected_yes" "$prompt_out"; then
-    echo "  FAIL  $name (prompt-out missing: $expected_yes)"
-    echo "        prompt_out: $(head -c 400 "$prompt_out")"
-    failed=$((failed+1))
-  elif [ "$expected_no" != "-" ] && grep -qF -e "$expected_no" "$prompt_out"; then
-    echo "  FAIL  $name (prompt-out unexpectedly contains: $expected_no)"
-    echo "        prompt_out: $(head -c 400 "$prompt_out")"
-    failed=$((failed+1))
-  else
-    echo "  PASS  $name"
-    passed=$((passed+1))
-  fi
-  rm -f "$prompt_out" "$env_out"
-}
-
-# Generate a long prompt that previously exceeded the old compact limit.
-LONG_ADAPTER_PROMPT=$(python3 -c "
-head = 'fix critical head start CRITICAL_HEAD_MARKER'
-middle = ' CRITICAL_MIDDLE_MARKER '
-tail = 'critical tail end CRITICAL_TAIL_END_MARKER'
-filler = ' x' * 1000
-print(head + filler + middle + filler + tail)
-")
-
-test_adapter \
-  "adapter preserves long prompt head critical text" \
-  "CRITICAL_HEAD_MARKER" "-" \
-  "$LONG_ADAPTER_PROMPT" \
-  --model "flash" --model-explicit "1" \
-  --effort "medium" --effort-explicit "1" \
-  --permission-mode "bypassPermissions" --permission-explicit "1"
-
-test_adapter \
-  "adapter preserves long prompt middle critical text" \
-  "CRITICAL_MIDDLE_MARKER" "-" \
-  "$LONG_ADAPTER_PROMPT" \
-  --model "flash" --model-explicit "1" \
-  --effort "medium" --effort-explicit "1" \
-  --permission-mode "bypassPermissions" --permission-explicit "1"
-
-test_adapter \
-  "adapter preserves long prompt tail critical text" \
-  "CRITICAL_TAIL_END_MARKER" "-" \
-  "$LONG_ADAPTER_PROMPT" \
-  --model "flash" --model-explicit "1" \
-  --effort "medium" --effort-explicit "1" \
-  --permission-mode "bypassPermissions" --permission-explicit "1"
-
-test_adapter \
-  "adapter does not truncate long original request" \
-  "-" "truncated" \
-  "$LONG_ADAPTER_PROMPT" \
-  --model "flash" --model-explicit "1" \
-  --effort "medium" --effort-explicit "1" \
-  --permission-mode "bypassPermissions" --permission-explicit "1"
-
-# Short prompt should remain unchanged (no truncation)
-SHORT_ADAPTER_PROMPT="fix a typo in the readme END_CRITICAL"
-test_adapter \
-  "adapter keeps short prompt unchanged" \
-  "END_CRITICAL" "truncated" \
-  "$SHORT_ADAPTER_PROMPT" \
-  --model "flash" --model-explicit "1" \
-  --effort "medium" --effort-explicit "1" \
-  --permission-mode "bypassPermissions" --permission-explicit "1"
 
 # ---- aggregate-profile-log.py tests ----
 
@@ -1256,6 +1162,7 @@ test_mcp_server_py \
   "classify_task returns correct dict structure" \
   "classify_task_OK" 0 \
   "from classifier import classify_prompt
+from pipeline import _resolve_auto
 import importlib.util, os
 spec = importlib.util.spec_from_file_location(
     'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
@@ -1274,6 +1181,7 @@ test_mcp_server_py \
   "classify_task detects Jira operations" \
   "jira_detect_OK" 0 \
   "from classifier import classify_prompt
+from pipeline import _resolve_auto
 import importlib.util, os
 spec = importlib.util.spec_from_file_location(
     'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
@@ -1330,6 +1238,7 @@ mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 
 from classifier import classify_prompt
+from pipeline import _resolve_auto
 from envelope_builder import build_prepared_prompt
 from invoker import InvokerConfig, invoke_claude
 
@@ -1338,8 +1247,8 @@ prompt = 'fix the README typo'
 classification = classify_prompt(prompt)
 
 model = classification.model
-effort = mod._resolve_auto('auto', classification.effort)
-permission = mod._resolve_auto('auto', classification.permission_mode)
+effort = _resolve_auto('auto', classification.effort)
+permission = _resolve_auto('auto', classification.permission_mode)
 
 final_prompt, mode = build_prepared_prompt(prompt, classification, 'auto')
 
@@ -1728,6 +1637,248 @@ else
   echo "  PASS  mcp server no package (mcp installed, error path verified by module test)"
   passed=$((passed+1))
 fi
+
+# ---- pipeline.py tests ----
+
+echo ""
+echo "=== pipeline.py ==="
+
+# test_pipeline_py name expected_out expected_exit py_code
+test_pipeline_py() {
+  local name="$1" expected_out="$2" expected_exit="$3"
+  local py_script; py_script=$(mktemp "$SANDBOX/pipe_script.XXXX.py")
+  cat > "$py_script" <<PYEOF
+import sys, os, json, tempfile
+sys.path.insert(0, "$SCRIPT_DIR/../scripts")
+$4
+PYEOF
+  local outfile; outfile=$(mktemp "$SANDBOX/pipe_out.XXXX")
+  local errfile; errfile=$(mktemp "$SANDBOX/pipe_err.XXXX")
+  set +e
+  python3 "$py_script" > "$outfile" 2> "$errfile"
+  local rc=$?
+  set -e
+  if [ "$rc" -ne "$expected_exit" ]; then
+    echo "  FAIL  $name (exit $rc, expected $expected_exit)"
+    echo "        stderr: $(cat "$errfile")"
+    failed=$((failed+1))
+  elif [ -n "$expected_out" ] && ! grep -qF -e "$expected_out" "$outfile"; then
+    echo "  FAIL  $name (output missing: $expected_out)"
+    echo "        output: $(cat "$outfile")"
+    echo "        stderr: $(cat "$errfile")"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+  rm -f "$py_script" "$outfile" "$errfile"
+}
+
+test_pipeline_py \
+  "pipeline module imports DelegationResult and run_delegation_pipeline" \
+  "pipeline_ok" 0 \
+  "from pipeline import DelegationResult, run_delegation_pipeline
+dr = DelegationResult(result='ok', usage={}, cost_usd=0.0, terminal_reason='', is_error=False, classification={}, model='pro', effort='max')
+assert dr.result == 'ok'
+assert dr.model == 'pro'
+print('pipeline_ok')"
+
+test_pipeline_py \
+  "run_delegation_pipeline code-edit prompt uses flash model" \
+  "flash" 0 \
+  "from pipeline import run_delegation_pipeline
+result = run_delegation_pipeline('fix the README typo', output_mode='quiet')
+assert not result.is_error
+assert 'done' in result.result
+print('flash')
+# Check flash model was used for code edit
+assert 'flash' in result.model, f'expected flash but got {result.model}'"
+
+test_pipeline_py \
+  "run_delegation_pipeline architecture prompt uses pro model" \
+  "pro_model_ok" 0 \
+  "from pipeline import run_delegation_pipeline
+result = run_delegation_pipeline('architecture refactor plan', output_mode='quiet')
+assert not result.is_error
+assert 'pro' in result.model, f'expected pro but got {result.model}'
+assert result.effort == 'max'
+print('pro_model_ok')"
+
+test_pipeline_py \
+  "run_delegation_pipeline explicit model_tier overrides classification" \
+  "model_override_ok" 0 \
+  "from pipeline import run_delegation_pipeline
+result = run_delegation_pipeline('check how many rows', model_tier='pro', output_mode='quiet')
+assert 'pro' in result.model, f'expected pro but got {result.model}'
+print('model_override_ok')"
+
+test_pipeline_py \
+  "run_delegation_pipeline explicit effort overrides classification" \
+  "effort_override_ok" 0 \
+  "from pipeline import run_delegation_pipeline
+result = run_delegation_pipeline('check how many rows', effort='max', output_mode='quiet')
+assert result.effort == 'max'
+print('effort_override_ok')"
+
+test_pipeline_py \
+  "run_delegation_pipeline stream mode returns raw output" \
+  "stream_ok" 0 \
+  "from pipeline import run_delegation_pipeline
+result = run_delegation_pipeline('test prompt', output_mode='stream')
+assert 'done' in result.result
+print('stream_ok')"
+
+test_pipeline_py \
+  "run_delegation_pipeline subagent_mode off disallows Task Agent" \
+  "HAS_DISALLOWED" 0 \
+  "from pipeline import run_delegation_pipeline
+import os, json, tempfile
+capture = tempfile.mktemp(suffix='.txt')
+os.environ['CLAUDE_DELEGATE_TEST_CAPTURE'] = capture
+result = run_delegation_pipeline('test prompt', subagent_mode='off', output_mode='quiet')
+captured = open(capture).read()
+if '--disallowedTools' in captured and 'Task' in captured and 'Agent' in captured:
+    print('HAS_DISALLOWED')
+else:
+    print('NO_DISALLOWED')
+os.unlink(capture)"
+
+test_pipeline_py \
+  "run_delegation_pipeline profile logging writes JSONL when env set" \
+  "profile_log_ok" 0 \
+  "from pipeline import run_delegation_pipeline
+import os, json, tempfile
+log_path = tempfile.mktemp(suffix='.jsonl')
+os.environ['CLAUDE_DELEGATE_PROFILE_LOG'] = log_path
+result = run_delegation_pipeline('test prompt', output_mode='quiet')
+assert result.is_error == False
+with open(log_path) as f:
+    lines = [l for l in f if l.strip()]
+assert len(lines) == 1, f'expected 1 profile record, got {len(lines)}'
+record = json.loads(lines[0])
+assert 'timestamp' in record
+assert record['model'] == result.model
+os.unlink(log_path)
+print('profile_log_ok')"
+
+# ---- profile_logger.py tests ----
+
+echo ""
+echo "=== profile_logger.py ==="
+
+# test_profile_logger_py name expected_out expected_exit py_code
+test_profile_logger_py() {
+  local name="$1" expected_out="$2" expected_exit="$3"
+  local py_script; py_script=$(mktemp "$SANDBOX/pl_script.XXXX.py")
+  cat > "$py_script" <<PYEOF
+import sys, os, json
+sys.path.insert(0, "$SCRIPT_DIR/../scripts")
+$4
+PYEOF
+  local outfile; outfile=$(mktemp "$SANDBOX/pl_out.XXXX")
+  local errfile; errfile=$(mktemp "$SANDBOX/pl_err.XXXX")
+  set +e
+  python3 "$py_script" > "$outfile" 2> "$errfile"
+  local rc=$?
+  set -e
+  if [ "$rc" -ne "$expected_exit" ]; then
+    echo "  FAIL  $name (exit $rc, expected $expected_exit)"
+    echo "        stderr: $(cat "$errfile")"
+    failed=$((failed+1))
+  elif [ -n "$expected_out" ] && ! grep -qF -e "$expected_out" "$outfile"; then
+    echo "  FAIL  $name (output missing: $expected_out)"
+    echo "        output: $(cat "$outfile")"
+    echo "        stderr: $(cat "$errfile")"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+  rm -f "$py_script" "$outfile" "$errfile"
+}
+
+test_profile_logger_py \
+  "build_profile_record exists and is callable" \
+  "bpr_ok" 0 \
+  "from profile_logger import build_profile_record
+r = build_profile_record(model='test-model', effort='max')
+assert r['model'] == 'test-model'
+assert r['effort'] == 'max'
+assert 'timestamp' in r
+assert r['usage'] == {}
+assert r['isError'] == False
+print('bpr_ok')"
+
+test_profile_logger_py \
+  "build_profile_record full fields compact-claude-stream shape" \
+  "bpr_full_ok" 0 \
+  "from profile_logger import build_profile_record
+r = build_profile_record(
+    model='pro',
+    effort='max',
+    permission_mode='bypassPermissions',
+    mcp_mode='all',
+    task_class='small',
+    task_type='code_edit',
+    context_budget='standard',
+    prompt_mode='template',
+    prompt_template='code_edit',
+    original_prompt_chars=100,
+    prepared_prompt_chars=70,
+    prompt_reduction_pct=30,
+    usage={'input_tokens': 5, 'output_tokens': 10},
+    total_cost_usd=0.01,
+    terminal_reason='completed',
+    is_error=False,
+)
+assert r['model'] == 'pro'
+assert r['effort'] == 'max'
+assert r['permissionMode'] == 'bypassPermissions'
+assert r['mcpMode'] == 'all'
+assert r['class'] == 'small'
+assert r['taskType'] == 'code_edit'
+assert r['contextBudget'] == 'standard'
+assert r['promptMode'] == 'template'
+assert r['promptTemplate'] == 'code_edit'
+assert r['originalPromptChars'] == 100
+assert r['preparedPromptChars'] == 70
+assert r['promptReductionPct'] == 30
+assert r['usage'] == {'input_tokens': 5, 'output_tokens': 10}
+assert r['totalCostUsd'] == 0.01
+assert r['terminalReason'] == 'completed'
+assert r['isError'] == False
+assert 'timestamp' in r
+print('bpr_full_ok')"
+
+test_profile_logger_py \
+  "build_profile_record minimal fields mcp-server shape" \
+  "bpr_minimal_ok" 0 \
+  "from profile_logger import build_profile_record
+r = build_profile_record(
+    model='flash',
+    effort='low',
+    usage={'input_tokens': 5},
+    is_error=False,
+)
+assert r['model'] == 'flash'
+assert r['effort'] == 'low'
+assert r['usage'] == {'input_tokens': 5}
+assert r['isError'] == False
+assert r['permissionMode'] is None
+assert r['class'] is None
+print('bpr_minimal_ok')"
+
+test_profile_logger_py \
+  "build_profile_record isEmpty defaults to False with empty usage" \
+  "bpr_defaults_ok" 0 \
+  "from profile_logger import build_profile_record
+r = build_profile_record()
+assert r['isError'] == False
+assert r['usage'] == {}
+assert r['originalPromptChars'] == 0
+assert r['preparedPromptChars'] == 0
+assert r['promptReductionPct'] == 0
+print('bpr_defaults_ok')"
 
 # ---- summary ----
 

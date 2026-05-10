@@ -62,7 +62,7 @@ For the full CLI reference including all flags, env vars, and modes, see [Shell 
 
 ## MCP Transport
 
-The bundled `scripts/mcp_server.py` exposes delegation as MCP tools over stdio JSON-RPC transport, providing an alternative to the shell wrapper. Both transports use the same underlying classifier, envelope builder, invoker, and compactor — the MCP server is a typed contract layer on top of the same code.
+The bundled `scripts/mcp_server.py` exposes delegation as MCP tools over stdio JSON-RPC transport, providing an alternative to the shell wrapper. Both transports use `scripts/pipeline.py` — a single delegation pipeline (classify → envelope → invoke → compact → profile) — as their shared implementation. The MCP server imports it directly; the shell wrapper calls it via `scripts/run-pipeline.py`.
 
 ### Adding to .mcp.json
 
