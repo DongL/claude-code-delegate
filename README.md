@@ -51,7 +51,9 @@ The workflow is:
 5. **Review** — The orchestrator inspects `git diff`, test output, and the compact report, then decides whether to accept, reject, or request a targeted correction pass.
 6. **Report** — The final summary from the orchestrator states what changed, which tests ran, and any remaining risks.
 
-You can use this project either as a [Codex skill](#as-a-codex-skill) by symlinking it into your skills directory, or as a [standalone orchestrator](#as-a-standalone-orchestrator) through the bundled wrapper scripts.
+With the shell wrapper, steps 2–4 are separate CLI invocations. With MCP transport, the orchestrator calls `delegate_task` and the server handles classification, envelope, invocation, and compaction in one typed JSON-RPC call — the same pipeline, different interface.
+
+You can use this project as a [Codex skill](#as-a-codex-skill), as a [standalone orchestrator](#as-a-standalone-orchestrator) through the shell wrapper, or as an [MCP server](#mcp-server) for typed JSON-RPC discovery.
 
 ## Components
 
