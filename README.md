@@ -99,32 +99,18 @@ Example `.mcp.json` snippet (do not create a real file):
 
 ## Quick Start
 
-```bash
-# 1. Clone
-git clone https://github.com/DongL/claude-code-delegate.git
-cd claude-code-delegate
+### One-command install
 
-# 2. Prerequisites: Claude Code installed and python3 available
-claude --version
-python3 --version
+curl -fsSL https://raw.githubusercontent.com/DongL/claude-code-delegate/main/install.sh | bash
 
-# 3. (Recommended) Symlink into your Codex skill directory
-# Preferred (current Codex path)
+### Manual install
+
+```
+git clone https://github.com/DongL/claude-code-delegate.git ~/.claude-code-delegate
 mkdir -p ~/.agents/skills
-ln -sfn "$PWD" ~/.agents/skills/claude-code-delegate
-
-# Legacy Codex path, only if your Codex build still uses it
-mkdir -p ~/.codex/skills
-ln -sfn "$PWD" ~/.codex/skills/claude-code-delegate
-
-# 4. Run the test suite to verify everything works
-bash tests/run_tests.sh
-
-# 5. Try a minimal delegation (safe interactive mode)
-./scripts/run-claude-code.sh --interactive --flash "hello from delegate"
-
-# 6. (Optional) For MCP host discovery, add the server to .mcp.json — see
-# the MCP transport section in Operating Modes for the config snippet.
+ln -sfn ~/.claude-code-delegate ~/.agents/skills/claude-code-delegate
+bash ~/.claude-code-delegate/tests/run_tests.sh
+pip3 install mcp  # optional, for MCP server
 ```
 
 ## Provider Setup
