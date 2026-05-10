@@ -63,6 +63,7 @@ You can use this project either as a [Codex skill](#as-a-codex-skill) by symlink
 | `scripts/compact-claude-stream.py` | Compactor — reduces raw JSON stream to a concise changed-files + test-results report for the orchestrator |
 | `scripts/aggregate-profile-log.py` | Profile aggregator — reads CLAUDE_DELEGATE_PROFILE_LOG JSONL and produces summaries |
 | `scripts/jira-safe-text.py` | Jira formatter — strips Markdown for plain-text Jira MCP comments |
+| `scripts/mcp_server.py` | MCP server — exposes delegation tools (classify, delegate, aggregate, format_jira_text) over stdio JSON-RPC |
 | `tests/run_tests.sh` | Test runner — covers wrapper flag parsing, adapter classification, and compactor behavior (not agent correctness) |
 | `docs/jira-workflow.md` | Jira-specific delegation conventions |
 
@@ -77,6 +78,21 @@ The wrapper supports three permission modes for different trust levels:
 | Automation mode | `--bypass` | `bypassPermissions` — same as default, explicit alias | CI/CD pipelines, trusted repositories, scripts |
 
 > **⚠️ Review caveat**: Permission mode only controls whether Claude Code prompts during execution. The wrapper never approves or rejects changes — that is the orchestrator's responsibility. Always inspect `git diff` and test output before accepting delegated work, regardless of permission mode.
+
+**MCP transport**: `scripts/mcp_server.py` exposes delegation as an MCP server over stdio JSON-RPC. An MCP-compatible host can discover the four tools (`classify_task`, `delegate_task`, `aggregate_profile`, `format_jira_text`) via `tools/list` and invoke them through typed JSON-RPC calls. Requires `pip install mcp`. The shell wrapper remains the primary transport and does not need the `mcp` package — the MCP server is an additive discovery layer for orchestrators that speak MCP.
+
+Example `.mcp.json` snippet (do not create a real file):
+
+```json
+{
+  "mcpServers": {
+    "claude-code-delegate": {
+      "command": "python3",
+      "args": ["scripts/mcp_server.py"]
+    }
+  }
+}
+```
 
 ## Quick Start
 
@@ -103,6 +119,9 @@ bash tests/run_tests.sh
 
 # 5. Try a minimal delegation (safe interactive mode)
 ./scripts/run-claude-code.sh --interactive --flash "hello from delegate"
+
+# 6. (Optional) For MCP host discovery, add the server to .mcp.json — see
+# the MCP transport section in Operating Modes for the config snippet.
 ```
 
 ## Provider Setup

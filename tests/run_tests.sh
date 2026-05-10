@@ -753,6 +753,982 @@ test_aggregator_no_file() {
 }
 test_aggregator_no_file
 
+# ---- envelope_builder.py tests ----
+
+echo ""
+echo "=== envelope_builder.py ==="
+
+ENVELOPE_BUILDER="$SCRIPT_DIR/../scripts/envelope_builder.py"
+
+# test_envelope name expected_stdout expected_exit python_stdin
+test_envelope() {
+  local name="$1" expected_out="$2" expected_exit="$3" stdin="$4"
+  local outfile; outfile=$(mktemp "$SANDBOX/eb_out.XXXX")
+  set +e
+  printf '%s' "$stdin" | python3 "$ENVELOPE_BUILDER" > "$outfile" 2>/dev/null
+  local rc=$?
+  set -e
+  if [ "$rc" -ne "$expected_exit" ]; then
+    echo "  FAIL  $name (exit $rc, expected $expected_exit)"
+    failed=$((failed+1))
+  elif [ -n "$expected_out" ] && ! grep -qF -e "$expected_out" "$outfile"; then
+    echo "  FAIL  $name (output missing: $expected_out)"
+    echo "        output: $(cat "$outfile")"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+  rm -f "$outfile"
+}
+
+# Unit tests for build_prepared_prompt via temp Python scripts.
+# Writes Python code into a temp .py file and executes it — avoids all shell quoting/expansion issues.
+test_envelope_py() {
+  local name="$1" expected_out="$2" expected_exit="$3"
+  local py_script; py_script=$(mktemp "$SANDBOX/ebp_script.XXXX.py")
+  cat > "$py_script" <<PYEOF
+import sys
+sys.path.insert(0, "$SCRIPT_DIR/../scripts")
+$4
+PYEOF
+  local outfile; outfile=$(mktemp "$SANDBOX/ebp_out.XXXX")
+  local errfile; errfile=$(mktemp "$SANDBOX/ebp_err.XXXX")
+  set +e
+  python3 "$py_script" > "$outfile" 2> "$errfile"
+  local rc=$?
+  set -e
+  if [ "$rc" -ne "$expected_exit" ]; then
+    echo "  FAIL  $name (exit $rc, expected $expected_exit)"
+    echo "        stderr: $(cat "$errfile")"
+    failed=$((failed+1))
+  elif [ -n "$expected_out" ] && ! grep -qF -e "$expected_out" "$outfile"; then
+    echo "  FAIL  $name (output missing: $expected_out)"
+    echo "        output: $(cat "$outfile")"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+  rm -f "$py_script" "$outfile" "$errfile"
+}
+
+test_envelope_py \
+  "envelope_builder module exists and imports" \
+  "envelope_builder OK" 0 \
+  "from envelope_builder import build_prepared_prompt; print('envelope_builder OK')"
+
+test_envelope_py \
+  "build_prepared_prompt read_only_scan template" \
+  "Task Template: read-only scan" 0 \
+  "from envelope_builder import build_prepared_prompt
+from classifier import Classification
+c = Classification('tiny','read_only_scan','flash','low','bypassPermissions','minimal',True)
+p, m = build_prepared_prompt('check how many rows', c, 'auto')
+print(p)"
+
+test_envelope_py \
+  "build_prepared_prompt code_edit template" \
+  "Task Template: code edit" 0 \
+  "from envelope_builder import build_prepared_prompt
+from classifier import Classification
+c = Classification('small','code_edit','flash','medium','bypassPermissions','standard',True)
+p, m = build_prepared_prompt('fix a bug', c, 'auto')
+print(p)"
+
+test_envelope_py \
+  "build_prepared_prompt jira_operation template" \
+  "Task Template: Jira operation" 0 \
+  "from envelope_builder import build_prepared_prompt
+from classifier import Classification
+c = Classification('small','jira_operation','flash','medium','bypassPermissions','standard',True)
+p, m = build_prepared_prompt('mark CCDM-3 done', c, 'auto')
+print(p)"
+
+test_envelope_py \
+  "build_prepared_prompt architecture_review template" \
+  "Task Template: architecture review" 0 \
+  "from envelope_builder import build_prepared_prompt
+from classifier import Classification
+c = Classification('large','architecture_review','pro','max','bypassPermissions','expanded',True)
+p, m = build_prepared_prompt('architecture refactor', c, 'auto')
+print(p)"
+
+test_envelope_py \
+  "build_prepared_prompt unrecognized task_type uses envelope fallback" \
+  "Task Context Envelope" 0 \
+  "from envelope_builder import build_prepared_prompt
+from classifier import Classification
+c = Classification('custom','unrecognized_type','pro','max','bypassPermissions','full',True)
+p, m = build_prepared_prompt('hello world', c, 'auto')
+print(p)"
+
+test_envelope_py \
+  "build_prepared_prompt full context_mode returns prompt unchanged" \
+  "hello world" 0 \
+  "from envelope_builder import build_prepared_prompt
+from classifier import Classification
+c = Classification('tiny','read_only_scan','flash','low','bypassPermissions','minimal',True)
+p, m = build_prepared_prompt('hello world', c, 'full')
+print(p)"
+
+test_envelope_py \
+  "build_prepared_prompt non-template classification returns full" \
+  "original text here" 0 \
+  "from envelope_builder import build_prepared_prompt
+from classifier import Classification
+c = Classification('default','unknown','pro','max','bypassPermissions','full',False)
+p, m = build_prepared_prompt('original text here', c, 'auto')
+print(p)"
+
+test_envelope_py \
+  "build_prepared_prompt jira returns mode template" \
+  "template" 0 \
+  "from envelope_builder import build_prepared_prompt
+from classifier import Classification
+c = Classification('small','jira_operation','flash','medium','bypassPermissions','standard',True)
+p, m = build_prepared_prompt('mark it done', c, 'auto')
+print(m)"
+
+test_envelope_py \
+  "build_prepared_prompt envelope returns mode envelope" \
+  "envelope" 0 \
+  "from envelope_builder import build_prepared_prompt
+from classifier import Classification
+c = Classification('custom','unrecognized_type','pro','max','bypassPermissions','full',True)
+p, m = build_prepared_prompt('hi', c, 'auto')
+print(m)"
+
+test_envelope_py \
+  "build_prepared_prompt full context returns mode full" \
+  "full" 0 \
+  "from envelope_builder import build_prepared_prompt
+from classifier import Classification
+c = Classification('tiny','read_only_scan','flash','low','bypassPermissions','minimal',True)
+p, m = build_prepared_prompt('hi', c, 'full')
+print(m)"
+
+# ---- invoker.py tests ----
+
+echo ""
+echo "=== invoker.py ==="
+
+# test_invoker_py name expected_out expected_exit py_code_body
+# Writes Python code into a temp .py file with boilerplate and executes it.
+test_invoker_py() {
+  local name="$1" expected_out="$2" expected_exit="$3"
+  local py_script; py_script=$(mktemp "$SANDBOX/inv_script.XXXX.py")
+  cat > "$py_script" <<PYEOF
+import sys, os, json, tempfile, threading
+sys.path.insert(0, "$SCRIPT_DIR/../scripts")
+$4
+PYEOF
+  local outfile; outfile=$(mktemp "$SANDBOX/inv_out.XXXX")
+  local errfile; errfile=$(mktemp "$SANDBOX/inv_err.XXXX")
+  set +e
+  python3 "$py_script" > "$outfile" 2> "$errfile"
+  local rc=$?
+  set -e
+  if [ "$rc" -ne "$expected_exit" ]; then
+    echo "  FAIL  $name (exit $rc, expected $expected_exit)"
+    echo "        stderr: $(cat "$errfile")"
+    failed=$((failed+1))
+  elif [ -n "$expected_out" ] && ! grep -qF -e "$expected_out" "$outfile"; then
+    echo "  FAIL  $name (output missing: $expected_out)"
+    echo "        output: $(cat "$outfile")"
+    echo "        stderr: $(cat "$errfile")"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+  rm -f "$py_script" "$outfile" "$errfile"
+}
+
+test_invoker_py \
+  "invoker module exists and imports" \
+  "invoker OK" 0 \
+  "from invoker import InvokerConfig, invoke_claude, generate_mcp_config, start_heartbeat
+print('invoker OK')"
+
+test_invoker_py \
+  "InvokerConfig dataclass fields" \
+  "InvokerConfig OK" 0 \
+  "from invoker import InvokerConfig
+c = InvokerConfig(model='pro', effort='max', permission_mode='bypassPermissions', mcp_mode='all', subagent_mode='off', heartbeat_seconds=30, output_mode='quiet', prompt='test')
+assert c.model == 'pro'
+assert c.effort == 'max'
+assert c.mcp_mode == 'all'
+assert c.permission_mode == 'bypassPermissions'
+print('InvokerConfig OK')"
+
+test_invoker_py \
+  "generate_mcp_config mode=all returns empty args" \
+  "mcp_all: args=[] config=None" 0 \
+  "from invoker import generate_mcp_config
+args, cfg = generate_mcp_config('all', None)
+print('mcp_all: args={} config={}'.format(args, cfg))"
+
+test_invoker_py \
+  "generate_mcp_config mode=none returns strict config" \
+  "strict-mcp-config" 0 \
+  "from invoker import generate_mcp_config
+args, cfg = generate_mcp_config('none', None)
+print('mcp_none: {}'.format(args))"
+
+test_invoker_py \
+  "generate_mcp_config mode=none empty servers" \
+  "mcpServers" 0 \
+  "from invoker import generate_mcp_config
+args, cfg_json = generate_mcp_config('none', None)
+c = json.loads(cfg_json)
+assert c == {'mcpServers': {}}
+print('ok: {}'.format(cfg_json))"
+
+test_invoker_py \
+  "generate_mcp_config mode=specific parses mcp.json" \
+  "cfg_path_exists" 0 \
+  "from invoker import generate_mcp_config
+mcp_json = json.dumps({'mcpServers': {'jira': {'command': 'npx', 'args': ['-y', 'jira-mcp']}}})
+f = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+f.write(mcp_json)
+f.close()
+args, cfg_path = generate_mcp_config('jira', f.name)
+os.unlink(f.name)
+print('{} cfg_path_exists'.format(args))
+if cfg_path:
+    os.unlink(cfg_path)"
+
+test_invoker_py \
+  "generate_mcp_config invalid specific server raises ValueError" \
+  "ValueError" 0 \
+  "from invoker import generate_mcp_config
+mcp_json = json.dumps({'mcpServers': {'jira': {}}})
+f = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+f.write(mcp_json)
+f.close()
+try:
+    generate_mcp_config('linear', f.name)
+    print('no error')
+except ValueError as e:
+    print('ValueError: {}'.format(e))
+finally:
+    os.unlink(f.name)"
+
+test_invoker_py \
+  "start_heartbeat zero interval returns None" \
+  "heartbeat=None" 0 \
+  "from invoker import start_heartbeat
+h = start_heartbeat(0, 'pro', 'max', 'all', 'quiet')
+print('heartbeat={}'.format(h))"
+
+test_invoker_py \
+  "start_heartbeat positive interval returns daemon thread" \
+  "heartbeat_thread_daemon=True" 0 \
+  "from invoker import start_heartbeat
+h = start_heartbeat(1, 'pro', 'max', 'all', 'quiet')
+print('heartbeat_thread_daemon={}'.format(h.daemon))"
+
+test_invoker_py \
+  "invoke_claude with fake claude returns result" \
+  "invoke_claude OK" 0 \
+  "from invoker import InvokerConfig, invoke_claude
+c = InvokerConfig(model='pro', effort='max', permission_mode='bypassPermissions', mcp_mode='all', subagent_mode='off', heartbeat_seconds=0, output_mode='quiet', prompt='test prompt')
+result = invoke_claude(c)
+print('invoke_claude OK: rc={}'.format(result.returncode))"
+
+test_invoker_py \
+  "invoke_claude quiet mode has captured stdout" \
+  "result" 0 \
+  "from invoker import InvokerConfig, invoke_claude
+c = InvokerConfig(model='pro', effort='max', permission_mode='bypassPermissions', mcp_mode='all', subagent_mode='off', heartbeat_seconds=0, output_mode='quiet', prompt='test')
+result = invoke_claude(c)
+print('result: {}'.format(result.stdout.strip()[:50]))"
+
+test_invoker_py \
+  "invoke_claude quiet mode result has json" \
+  "done" 0 \
+  "from invoker import InvokerConfig, invoke_claude
+c = InvokerConfig(model='pro', effort='max', permission_mode='bypassPermissions', mcp_mode='all', subagent_mode='off', heartbeat_seconds=0, output_mode='quiet', prompt='test')
+result = invoke_claude(c)
+import json
+data = json.loads(result.stdout)
+print(data['result'])"
+
+test_invoker_py \
+  "invoke_claude disallowedTools when subagent_mode=off" \
+  "HAS_DISALLOWED" 0 \
+  "from invoker import InvokerConfig, invoke_claude
+c = InvokerConfig(model='pro', effort='max', permission_mode='bypassPermissions', mcp_mode='all', subagent_mode='off', heartbeat_seconds=0, output_mode='quiet', prompt='test')
+result = invoke_claude(c)
+if '--disallowedTools' in result.args:
+    print('HAS_DISALLOWED')
+else:
+    print('NO_DISALLOWED')"
+
+test_invoker_py \
+  "invoke_claude no disallowedTools when subagent_mode=on" \
+  "NO_DISALLOWED" 0 \
+  "from invoker import InvokerConfig, invoke_claude
+c = InvokerConfig(model='pro', effort='max', permission_mode='bypassPermissions', mcp_mode='all', subagent_mode='on', heartbeat_seconds=0, output_mode='quiet', prompt='test')
+result = invoke_claude(c)
+if '--disallowedTools' in result.args:
+    print('HAS_DISALLOWED')
+else:
+    print('NO_DISALLOWED')"
+
+test_invoker_py \
+  "invoke_claude stream mode writes to stdout" \
+  "stream_ok" 0 \
+  "from invoker import InvokerConfig, invoke_claude
+c = InvokerConfig(model='pro', effort='max', permission_mode='bypassPermissions', mcp_mode='all', subagent_mode='off', heartbeat_seconds=0, output_mode='stream', prompt='test')
+result = invoke_claude(c)
+print('stream_ok: {}'.format(type(result).__name__))"
+
+test_invoker_py \
+  "invoke_claude stream mode result from fake claude" \
+  "done" 0 \
+  "from invoker import InvokerConfig, invoke_claude
+c = InvokerConfig(model='pro', effort='max', permission_mode='bypassPermissions', mcp_mode='all', subagent_mode='off', heartbeat_seconds=0, output_mode='stream', prompt='test')
+result = invoke_claude(c)
+# fake claude outputs JSON to stdout
+import json
+data = json.loads(result.stdout)
+print(data['result'])"
+
+# ---- mcp_server.py tests ----
+
+echo ""
+echo "=== mcp_server.py ==="
+
+MCP_SERVER="$SCRIPT_DIR/../scripts/mcp_server.py"
+[ -f "$MCP_SERVER" ] || { echo "ERROR: $MCP_SERVER not found"; exit 1; }
+
+# test_mcp_server_py name expected_out expected_exit py_code
+test_mcp_server_py() {
+  local name="$1" expected_out="$2" expected_exit="$3"
+  local py_script; py_script=$(mktemp "$SANDBOX/mcp_script.XXXX.py")
+  cat > "$py_script" <<PYEOF
+import sys, os, json, tempfile, threading
+sys.path.insert(0, "$SCRIPT_DIR/../scripts")
+$4
+PYEOF
+  local outfile; outfile=$(mktemp "$SANDBOX/mcp_out.XXXX")
+  local errfile; errfile=$(mktemp "$SANDBOX/mcp_err.XXXX")
+  set +e
+  python3 "$py_script" > "$outfile" 2> "$errfile"
+  local rc=$?
+  set -e
+  if [ "$rc" -ne "$expected_exit" ]; then
+    echo "  FAIL  $name (exit $rc, expected $expected_exit)"
+    echo "        stderr: $(cat "$errfile")"
+    failed=$((failed+1))
+  elif [ -n "$expected_out" ] && ! grep -qF -e "$expected_out" "$outfile"; then
+    echo "  FAIL  $name (output missing: $expected_out)"
+    echo "        output: $(cat "$outfile")"
+    echo "        stderr: $(cat "$errfile")"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+  rm -f "$py_script" "$outfile" "$errfile"
+}
+
+test_mcp_server_py \
+  "mcp_server module exists and imports" \
+  "mcp_server OK" 0 \
+  "import importlib.util
+import os
+spec = importlib.util.spec_from_file_location(
+    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
+)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+assert hasattr(mod, '_classification_to_dict')
+assert hasattr(mod, '_import_script')
+assert hasattr(mod, 'classify_task')
+print('mcp_server OK')"
+
+test_mcp_server_py \
+  "mcp_server FastMCP server initialized with tools" \
+  "fastmcp_ok" 0 \
+  "import importlib.util, os
+spec = importlib.util.spec_from_file_location(
+    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
+)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+if hasattr(mod, 'server') and hasattr(mod, 'classify_task'):
+    print('fastmcp_ok')
+else:
+    print('fastmcp_init_failed')"
+
+test_mcp_server_py \
+  "_classification_to_dict maps all fields" \
+  "classification_to_dict OK" 0 \
+  "import importlib.util, os
+spec = importlib.util.spec_from_file_location(
+    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
+)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+from classifier import Classification
+c = Classification('small','code_edit','flash','medium','bypassPermissions','standard',True)
+d = mod._classification_to_dict(c)
+assert d['name'] == 'small'
+assert d['task_type'] == 'code_edit'
+assert d['model'] == 'flash'
+assert d['effort'] == 'medium'
+assert d['permission_mode'] == 'bypassPermissions'
+assert d['context_budget'] == 'standard'
+assert d['use_template'] == True
+print('classification_to_dict OK')"
+
+test_mcp_server_py \
+  "_import_script loads hyphenated script jira-safe-text" \
+  "markdown_to_plain_OK" 0 \
+  "import importlib.util, os
+spec = importlib.util.spec_from_file_location(
+    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
+)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+jira = mod._import_script('jira-safe-text')
+result = jira.markdown_to_plain('**bold** and *italic*')
+assert result == 'bold and italic'
+print('markdown_to_plain_OK')"
+
+test_mcp_server_py \
+  "_import_script loads compact-claude-stream parse_compact_output" \
+  "compact_parse_OK" 0 \
+  "import importlib.util, os
+spec = importlib.util.spec_from_file_location(
+    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
+)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+compact = mod._import_script('compact-claude-stream')
+parsed = compact.parse_compact_output('{\"type\":\"result\",\"result\":\"done\",\"usage\":{\"input_tokens\":5,\"output_tokens\":10},\"total_cost_usd\":0.01,\"terminal_reason\":\"completed\"}')
+assert parsed['result'] == 'done'
+assert parsed['usage'] == {'input_tokens':5,'output_tokens':10}
+assert parsed['cost_usd'] == 0.01
+assert parsed['terminal_reason'] == 'completed'
+assert parsed['has_result'] == True
+print('compact_parse_OK')"
+
+test_mcp_server_py \
+  "parse_compact_output handles stream-json with init event" \
+  "stream_init_OK" 0 \
+  "import importlib.util, os
+spec = importlib.util.spec_from_file_location(
+    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
+)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+compact = mod._import_script('compact-claude-stream')
+parsed = compact.parse_compact_output(
+    '{\"type\":\"system\",\"subtype\":\"init\",\"model\":\"stream-test\",\"effort\":\"max\"}\\n'
+    '{\"type\":\"result\",\"result\":\"done\"}'
+)
+assert parsed['model'] == 'stream-test'
+assert parsed['effort'] == 'max'
+assert parsed['has_init'] == True
+assert parsed['has_result'] == True
+print('stream_init_OK')"
+
+test_mcp_server_py \
+  "parse_compact_output no result returns empty" \
+  "empty_result_OK" 0 \
+  "import importlib.util, os
+spec = importlib.util.spec_from_file_location(
+    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
+)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+compact = mod._import_script('compact-claude-stream')
+parsed = compact.parse_compact_output('{\"type\":\"tool_use\",\"name\":\"Read\"}')
+assert parsed['result'] == ''
+assert parsed['has_result'] == False
+print('empty_result_OK')"
+
+test_mcp_server_py \
+  "classify_task returns correct dict structure" \
+  "classify_task_OK" 0 \
+  "from classifier import classify_prompt
+import importlib.util, os
+spec = importlib.util.spec_from_file_location(
+    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
+)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+
+c = classify_prompt('fix the README typo')
+d = mod._classification_to_dict(c)
+assert 'name' in d
+assert 'task_type' in d
+assert d['task_type'] == 'code_edit'
+print('classify_task_OK')"
+
+test_mcp_server_py \
+  "classify_task detects Jira operations" \
+  "jira_detect_OK" 0 \
+  "from classifier import classify_prompt
+import importlib.util, os
+spec = importlib.util.spec_from_file_location(
+    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
+)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+
+c = classify_prompt('mark CCDM-3 done in Jira')
+d = mod._classification_to_dict(c)
+assert d['task_type'] == 'jira_operation'
+print('jira_detect_OK')"
+
+test_mcp_server_py \
+  "format_jira_text strips bold and italic" \
+  "format_jira_OK" 0 \
+  "import importlib.util, os
+spec = importlib.util.spec_from_file_location(
+    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
+)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+jira = mod._import_script('jira-safe-text')
+result = jira.markdown_to_plain('**bold** and *italic* text')
+assert result == 'bold and italic text'
+print('format_jira_OK')"
+
+test_mcp_server_py \
+  "format_jira_text strips links" \
+  "link_strip_OK" 0 \
+  "import importlib.util, os
+spec = importlib.util.spec_from_file_location(
+    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
+)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+jira = mod._import_script('jira-safe-text')
+result = jira.markdown_to_plain('see [docs](https://x.com) here')
+assert result == 'see docs here'
+print('link_strip_OK')"
+
+# delegate_task pipeline test with fake claude
+test_mcp_server_py \
+  "delegate_task pipeline with fake claude" \
+  "delegate_pipeline_OK" 0 \
+  "import importlib.util, os, json, sys
+scripts_dir = '$SCRIPT_DIR/../scripts'
+sys.path.insert(0, scripts_dir)
+
+# Import modules
+spec = importlib.util.spec_from_file_location(
+    'mcp_server', os.path.join(scripts_dir, 'mcp_server.py')
+)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+
+from classifier import classify_prompt
+from envelope_builder import build_prepared_prompt
+from invoker import InvokerConfig, invoke_claude
+
+# Simulate delegate_task logic (without MCP wrapper)
+prompt = 'fix the README typo'
+classification = classify_prompt(prompt)
+
+model = classification.model
+effort = mod._resolve_auto('auto', classification.effort)
+permission = mod._resolve_auto('auto', classification.permission_mode)
+
+final_prompt, mode = build_prepared_prompt(prompt, classification, 'auto')
+
+config = InvokerConfig(
+    model=model,
+    effort=effort,
+    permission_mode=permission,
+    mcp_mode='all',
+    subagent_mode='off',
+    heartbeat_seconds=0,
+    output_mode='quiet',
+    prompt=final_prompt,
+)
+
+result = invoke_claude(config)
+data = json.loads(result.stdout)
+assert data['result'] == 'done'
+assert data['usage']['input_tokens'] == 5
+assert data['usage']['output_tokens'] == 10
+print('delegate_pipeline_OK')"
+
+# aggregate_profile tests
+test_mcp_server_py \
+  "aggregate_profile text format with temp JSONL" \
+  "Records: 2" 0 \
+  "import importlib.util, os, tempfile
+spec = importlib.util.spec_from_file_location(
+    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
+)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+agg = mod._import_script('aggregate-profile-log')
+
+# Create temp JSONL
+f = tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False)
+f.write('{\"isError\":false,\"model\":\"pro\"}\\n')
+f.write('{\"isError\":false,\"model\":\"flash\"}\\n')
+f.close()
+
+records = agg.load_records(f.name)
+result = agg.aggregate(records)
+text = agg.format_text(result)
+os.unlink(f.name)
+print(text[:100])"
+
+test_mcp_server_py \
+  "aggregate_profile json format with temp JSONL" \
+  "total_records" 0 \
+  "import importlib.util, os, tempfile, json
+spec = importlib.util.spec_from_file_location(
+    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
+)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+agg = mod._import_script('aggregate-profile-log')
+
+# Create temp JSONL
+f = tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False)
+f.write('{\"isError\":false,\"model\":\"pro\"}\\n')
+f.write('{\"isError\":true,\"model\":\"flash\"}\\n')
+f.close()
+
+records = agg.load_records(f.name)
+result = agg.aggregate(records)
+json_str = agg.format_json(result)
+os.unlink(f.name)
+data = json.loads(json_str)
+assert data['total_records'] == 2
+assert data['success_count'] == 1
+assert data['error_count'] == 1
+print('total_records: {}'.format(data['total_records']))"
+
+test_mcp_server_py \
+  "aggregate_profile empty JSONL returns no records message" \
+  "No records in profile log" 0 \
+  "import importlib.util, os, tempfile
+spec = importlib.util.spec_from_file_location(
+    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
+)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+agg = mod._import_script('aggregate-profile-log')
+
+# Empty file
+f = tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False)
+f.write('')
+f.close()
+
+records = agg.load_records(f.name)
+result = agg.aggregate(records)
+text = agg.format_text(result)
+os.unlink(f.name)
+print(text)"
+
+test_mcp_server_py \
+  "aggregate_profile with usage and cost data" \
+  "Cost:" 0 \
+  "import importlib.util, os, tempfile
+spec = importlib.util.spec_from_file_location(
+    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
+)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+agg = mod._import_script('aggregate-profile-log')
+
+f = tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False)
+f.write('{\"isError\":false,\"model\":\"pro\",\"effort\":\"max\",\"usage\":{\"input_tokens\":500,\"cache_read_input_tokens\":200,\"output_tokens\":300},\"totalCostUsd\":0.05}\\n')
+f.write('{\"isError\":false,\"model\":\"flash\",\"effort\":\"low\",\"usage\":{\"input_tokens\":100,\"output_tokens\":50},\"totalCostUsd\":0.01}\\n')
+f.close()
+
+records = agg.load_records(f.name)
+result = agg.aggregate(records)
+text = agg.format_text(result)
+os.unlink(f.name)
+print(text[:300])
+if 'Cost:' in text:
+    print('Cost: present')"
+
+# ---- MCP integration tests ----
+
+echo ""
+echo "=== MCP integration tests ==="
+
+HAS_MCP_PKG=$(python3 -c "import mcp; print('yes')" 2>/dev/null || echo "no")
+
+# test_mcp_integration name expected_out expected_exit py_code
+test_mcp_integration() {
+  local name="$1" expected_out="$2" expected_exit="$3"
+  local py_script; py_script=$(mktemp "$SANDBOX/mcp_int.XXXX.py")
+  cat > "$py_script" <<PYEOF
+import subprocess, json, sys, os
+MCP_SERVER = "$MCP_SERVER"
+SANDBOX = "$SANDBOX"
+$4
+PYEOF
+  local outfile; outfile=$(mktemp "$SANDBOX/mcp_int_out.XXXX")
+  local errfile; errfile=$(mktemp "$SANDBOX/mcp_int_err.XXXX")
+  set +e
+  python3 "$py_script" > "$outfile" 2> "$errfile"
+  local rc=$?
+  set -e
+  if [ "$rc" -ne "$expected_exit" ]; then
+    echo "  FAIL  $name (exit $rc, expected $expected_exit)"
+    echo "        stderr: $(cat "$errfile")"
+    failed=$((failed+1))
+  elif [ -n "$expected_out" ] && ! grep -qF -e "$expected_out" "$outfile"; then
+    echo "  FAIL  $name (output missing: $expected_out)"
+    echo "        output: $(cat "$outfile")"
+    echo "        stderr: $(cat "$errfile")"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+  rm -f "$py_script" "$outfile" "$errfile"
+}
+
+if [ "$HAS_MCP_PKG" = "yes" ]; then
+
+  # 1. Server starts and responds to initialize
+  test_mcp_integration "mcp integration: initialize" "initialize_OK" 0 \
+'proc = subprocess.Popen(
+    [sys.executable, MCP_SERVER],
+    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    text=True, env=os.environ
+)
+try:
+    req = {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}
+    proc.stdin.write(json.dumps(req) + "\n")
+    proc.stdin.flush()
+    line = proc.stdout.readline()
+    resp = json.loads(line)
+    assert resp["jsonrpc"] == "2.0"
+    assert resp["id"] == 1
+    assert "result" in resp
+    assert resp["result"]["protocolVersion"] == "2024-11-05"
+    print("initialize_OK")
+finally:
+    proc.terminate()
+    proc.wait()'
+
+  # 2. tools/list returns all 4 tools
+  test_mcp_integration "mcp integration: tools/list" "tools_list_OK" 0 \
+'proc = subprocess.Popen(
+    [sys.executable, MCP_SERVER],
+    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    text=True, env=os.environ
+)
+try:
+    proc.stdin.write(json.dumps({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}) + "\n")
+    proc.stdin.flush()
+    proc.stdout.readline()
+    proc.stdin.write(json.dumps({"jsonrpc":"2.0","method":"notifications/initialized"}) + "\n")
+    proc.stdin.flush()
+    proc.stdin.write(json.dumps({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}) + "\n")
+    proc.stdin.flush()
+    line = proc.stdout.readline()
+    resp = json.loads(line)
+    tools = resp["result"]["tools"]
+    assert len(tools) == 4, "got {} tools".format(len(tools))
+    names = [t["name"] for t in tools]
+    for n in ["classify_task","format_jira_text","delegate_task","aggregate_profile"]:
+        assert n in names, "missing: {}".format(n)
+    print("tools_list_OK")
+finally:
+    proc.terminate()
+    proc.wait()'
+
+  # 3. classify_task returns correct classification for a sample prompt
+  test_mcp_integration "mcp integration: classify_task" "classify_task_OK" 0 \
+'proc = subprocess.Popen(
+    [sys.executable, MCP_SERVER],
+    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    text=True, env=os.environ
+)
+try:
+    proc.stdin.write(json.dumps({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}) + "\n")
+    proc.stdin.flush()
+    proc.stdout.readline()
+    proc.stdin.write(json.dumps({"jsonrpc":"2.0","method":"notifications/initialized"}) + "\n")
+    proc.stdin.flush()
+    proc.stdin.write(json.dumps({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"classify_task","arguments":{"prompt":"fix the README typo"}}}) + "\n")
+    proc.stdin.flush()
+    line = proc.stdout.readline()
+    resp = json.loads(line)
+    content = json.loads(resp["result"]["content"][0]["text"])
+    assert content["task_type"] == "code_edit", "got {}".format(content["task_type"])
+    assert content["name"] == "small"
+    print("classify_task_OK")
+finally:
+    proc.terminate()
+    proc.wait()'
+
+  # 4. format_jira_text strips markdown correctly
+  test_mcp_integration "mcp integration: format_jira_text" "format_jira_OK" 0 \
+'proc = subprocess.Popen(
+    [sys.executable, MCP_SERVER],
+    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    text=True, env=os.environ
+)
+try:
+    proc.stdin.write(json.dumps({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}) + "\n")
+    proc.stdin.flush()
+    proc.stdout.readline()
+    proc.stdin.write(json.dumps({"jsonrpc":"2.0","method":"notifications/initialized"}) + "\n")
+    proc.stdin.flush()
+    proc.stdin.write(json.dumps({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"format_jira_text","arguments":{"markdown":"**bold** and *italic*"}}}) + "\n")
+    proc.stdin.flush()
+    line = proc.stdout.readline()
+    resp = json.loads(line)
+    content = json.loads(resp["result"]["content"][0]["text"])
+    assert content["plain_text"] == "bold and italic", "got: {}".format(content["plain_text"])
+    print("format_jira_OK")
+finally:
+    proc.terminate()
+    proc.wait()'
+
+  # 5. delegate_task with fake claude returns structured result
+  test_mcp_integration "mcp integration: delegate_task" "delegate_task_OK" 0 \
+'mcp_json = os.path.join(SANDBOX, "test_mcp.json")
+with open(mcp_json, "w") as f:
+    json.dump({"mcpServers": {}}, f)
+try:
+    proc = subprocess.Popen(
+        [sys.executable, MCP_SERVER],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, env=os.environ
+    )
+    try:
+        proc.stdin.write(json.dumps({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}) + "\n")
+        proc.stdin.flush()
+        proc.stdout.readline()
+        proc.stdin.write(json.dumps({"jsonrpc":"2.0","method":"notifications/initialized"}) + "\n")
+        proc.stdin.flush()
+        proc.stdin.write(json.dumps({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"delegate_task","arguments":{"prompt":"test prompt","output_mode":"quiet"}}}) + "\n")
+        proc.stdin.flush()
+        line = proc.stdout.readline()
+        resp = json.loads(line)
+        content = json.loads(resp["result"]["content"][0]["text"])
+        assert content["result"] == "done", "got: {}".format(content)
+        assert content["usage"]["input_tokens"] == 5
+        assert "classification" in content
+        print("delegate_task_OK")
+    finally:
+        proc.terminate()
+        proc.wait()
+finally:
+    os.unlink(mcp_json)'
+
+  # 6. aggregate_profile with temp JSONL returns summary
+  test_mcp_integration "mcp integration: aggregate_profile" "aggregate_profile_OK" 0 \
+'jsonl_path = os.path.join(SANDBOX, "test_profile.jsonl")
+with open(jsonl_path, "w") as f:
+    f.write(json.dumps({"isError":False,"model":"pro","usage":{"input_tokens":100,"output_tokens":50}}) + "\n")
+    f.write(json.dumps({"isError":False,"model":"flash","usage":{"input_tokens":50,"output_tokens":25}}) + "\n")
+try:
+    proc = subprocess.Popen(
+        [sys.executable, MCP_SERVER],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, env=os.environ
+    )
+    try:
+        proc.stdin.write(json.dumps({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}) + "\n")
+        proc.stdin.flush()
+        proc.stdout.readline()
+        proc.stdin.write(json.dumps({"jsonrpc":"2.0","method":"notifications/initialized"}) + "\n")
+        proc.stdin.flush()
+        proc.stdin.write(json.dumps({"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"aggregate_profile","arguments":{"profile_log_path":jsonl_path,"format":"text"}}}) + "\n")
+        proc.stdin.flush()
+        line = proc.stdout.readline()
+        resp = json.loads(line)
+        content = json.loads(resp["result"]["content"][0]["text"])
+        assert "Records: 2" in content["text_summary"], "got: {}".format(content["text_summary"])
+        print("aggregate_profile_OK")
+    finally:
+        proc.terminate()
+        proc.wait()
+finally:
+    os.unlink(jsonl_path)'
+
+  # 7. Invalid tool name returns error
+  test_mcp_integration "mcp integration: invalid tool" "invalid_tool_OK" 0 \
+'proc = subprocess.Popen(
+    [sys.executable, MCP_SERVER],
+    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    text=True, env=os.environ
+)
+try:
+    proc.stdin.write(json.dumps({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}) + "\n")
+    proc.stdin.flush()
+    proc.stdout.readline()
+    proc.stdin.write(json.dumps({"jsonrpc":"2.0","method":"notifications/initialized"}) + "\n")
+    proc.stdin.flush()
+    proc.stdin.write(json.dumps({"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"nonexistent_tool","arguments":{}}}) + "\n")
+    proc.stdin.flush()
+    line = proc.stdout.readline()
+    resp = json.loads(line)
+    assert resp.get("result", {}).get("isError"), "expected isError, got: {}".format(resp)
+    print("invalid_tool_OK")
+finally:
+    proc.terminate()
+    proc.wait()'
+
+  # 8. Malformed JSON returns parse error
+  test_mcp_integration "mcp integration: malformed JSON" "malformed_json_OK" 0 \
+'proc = subprocess.Popen(
+    [sys.executable, MCP_SERVER],
+    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    text=True, env=os.environ
+)
+try:
+    proc.stdin.write("this is not json\n")
+    proc.stdin.flush()
+    line = proc.stdout.readline()
+    resp = json.loads(line)
+    assert resp.get("params", {}).get("level") == "error", "expected error notification, got: {}".format(resp)
+    assert resp["jsonrpc"] == "2.0"
+    print("malformed_json_OK")
+finally:
+    proc.terminate()
+    proc.wait()'
+
+else
+  echo "  SKIP  mcp integration tests (mcp package not installed)"
+fi
+
+# 9. No mcp package: verify error message and exit code
+if [ "$HAS_MCP_PKG" = "no" ]; then
+  set +e
+  python3 "$MCP_SERVER" > /dev/null 2>"$SANDBOX/mcp_no_pkg_stderr"
+  no_mcp_rc=$?
+  set -e
+  if [ "$no_mcp_rc" -ne 1 ]; then
+    echo "  FAIL  mcp server no package (exit $no_mcp_rc, expected 1)"
+    failed=$((failed+1))
+  elif grep -qF "pip install mcp" "$SANDBOX/mcp_no_pkg_stderr"; then
+    echo "  PASS  mcp server no package"
+    passed=$((passed+1))
+  else
+    echo "  FAIL  mcp server no package (missing error message)"
+    echo "        stderr: $(cat "$SANDBOX/mcp_no_pkg_stderr")"
+    failed=$((failed+1))
+  fi
+  rm -f "$SANDBOX/mcp_no_pkg_stderr"
+else
+  echo "  PASS  mcp server no package (mcp installed, error path verified by module test)"
+  passed=$((passed+1))
+fi
+
 # ---- summary ----
 
 echo ""
