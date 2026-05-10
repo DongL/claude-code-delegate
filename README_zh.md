@@ -45,9 +45,17 @@ ln -sfn "$PWD" ~/.agents/skills/claude-code-delegate
 2. `$HOME/.agents/skills/claude-code-delegate` —— 当前 Codex 路径
 3. `$HOME/.codex/skills/claude-code-delegate` —— 旧版 Codex 路径
 
+### 验证
+
+```bash
+./scripts/run-claude-code.sh --flash 'hello from delegate'
+```
+
+配置正确的话，会看到一个包含 model、usage 和 cost 的简洁报告。
+
 ## Provider 设置（DeepSeek V4）
 
-本项目默认使用 DeepSeek V4 模型，通过环境变量配置：
+本项目默认使用 DeepSeek V4 模型以降低委派成本。如果你使用原生 Claude Code + Anthropic 模型，跳过本节，在每次调用时覆盖模型即可：`CLAUDE_DELEGATE_MODEL=claude-sonnet-4-6 ./scripts/run-claude-code.sh "你的 prompt"`
 
 ```bash
 export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
@@ -141,17 +149,17 @@ claude -p "修复类型错误" --model deepseek-v4-flash[1m]
 
 ## CLI 参考
 
-| 标志 | 效果 |
-|------|------|
-| *(无)* | Pro 模型，quiet 输出，bypass 权限（默认） |
-| `--pro` / `--flash` | 模型层级选择 |
-| `--effort low\|medium\|high\|max` | 推理预算覆盖 |
-| `--interactive` | 自动接受编辑，工具命令需确认（安全首次运行） |
-| `--bypass` | 完全非交互（默认的显式别名） |
-| `--stream` | 原始 stream-json 输出（调试用） |
-| `--mcp all\|none\|jira\|linear\|sequential-thinking` | MCP server 加载 |
-| `--full-context` | 跳过 prompt 模板包装 |
-| `--allow-subagents` | 允许 Claude Code 生成 subagent |
+| 标志 | 环境变量 | 效果 |
+|------|----------|------|
+| *(默认)* | | Pro 模型，quiet 输出，bypass 权限 |
+| --pro / --flash | CLAUDE_DELEGATE_MODEL | 模型层级选择 |
+| --effort low\|medium\|high\|max | CLAUDE_DELEGATE_EFFORT | 推理预算覆盖 |
+| --quiet / --stream | CLAUDE_DELEGATE_OUTPUT_MODE | 输出格式（quiet: 简洁报告，stream: 原始 JSON） |
+| --interactive | CLAUDE_DELEGATE_PERMISSION_MODE | 自动接受编辑，工具命令需确认 |
+| --bypass | CLAUDE_DELEGATE_PERMISSION_MODE | 完全非交互（默认） |
+| --mcp all\|none\|jira\|linear\|sequential-thinking | CLAUDE_DELEGATE_MCP_MODE | MCP server 加载 |
+| --full-context | CLAUDE_DELEGATE_CONTEXT_MODE | 跳过 prompt 模板包装 |
+| --allow-subagents | CLAUDE_DELEGATE_SUBAGENTS | 允许 Claude Code 生成 subagent |
 
 环境变量等价项和完整细节：[docs/shell-wrapper-reference.md](docs/shell-wrapper-reference.md)。权限模式和安全：[SECURITY.md](SECURITY.md)。
 
@@ -160,6 +168,7 @@ claude -p "修复类型错误" --model deepseek-v4-flash[1m]
 | 文件 | 用途 |
 |------|------|
 | `SKILL.md` | 编排器契约 —— 委派循环、解析器、职责 |
+| `CONTEXT.md` | 领域词汇表 —— 编排器、执行器、Pro vs Flash、MCP 术语 |
 | `scripts/pipeline.py` | 委派流水线 —— 两个传输共享 |
 | `scripts/run-pipeline.py` | CLI 入口 —— 供 shell wrapper 调用 |
 | `scripts/run-claude-code.sh` | Shell wrapper —— 仅做标志解析 |
