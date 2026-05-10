@@ -184,8 +184,15 @@ delegate_task(prompt="修复拼写错误")
 通过 MCP 读取聚合结果：
 
 ```
+// 文本摘要
 aggregate_profile(profile_log_path="logs/profile.jsonl", format="text")
-// → "Records: 12  Success: 10  Error: 2 ..."
+// → Records: 12  Success: 10  Error: 2
+//   Cache hit ratio: 71.43%
+//   Total cost: $2.20
+
+// 机器可读（供编排器消费）
+aggregate_profile(profile_log_path="logs/profile.jsonl", format="json")
+// → { total_records: 12, success_count: 10, tokens: {...}, cost: {...} }
 ```
 
 Shell 后备方式：

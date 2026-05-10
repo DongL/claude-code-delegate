@@ -184,8 +184,15 @@ delegate_task(prompt="fix the typo")
 Then read the aggregate via MCP:
 
 ```
+// Text summary
 aggregate_profile(profile_log_path="logs/profile.jsonl", format="text")
-// → "Records: 12  Success: 10  Error: 2 ..."
+// → Records: 12  Success: 10  Error: 2
+//   Cache hit ratio: 71.43%
+//   Total cost: $2.20
+
+// Machine-readable (for orchestrator consumption)
+aggregate_profile(profile_log_path="logs/profile.jsonl", format="json")
+// → { total_records: 12, success_count: 10, tokens: {...}, cost: {...} }
 ```
 
 Shell fallback for the same operations:
