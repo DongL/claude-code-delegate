@@ -4,6 +4,33 @@ set -euo pipefail
 INSTALL_DIR="${CLAUDE_DELEGATE_INSTALL_DIR:-$HOME/.claude-code-delegate}"
 REPO_URL="https://github.com/DongL/claude-code-delegate.git"
 
+# ---- uninstall ----
+if [ "${1:-}" = "--uninstall" ]; then
+  echo "==> Uninstalling claude-code-delegate..."
+
+  for d in "$HOME/.agents/skills/claude-code-delegate" "$HOME/.codex/skills/claude-code-delegate"; do
+    if [ -L "$d" ] || [ -e "$d" ]; then
+      rm -f "$d"
+      echo "  Removed $d"
+    fi
+  done
+
+  if [ "${2:-}" = "--keep-repo" ]; then
+    echo "  Keeping repo at $INSTALL_DIR"
+  elif [ -d "$INSTALL_DIR" ]; then
+    echo "  Removing repo at $INSTALL_DIR..."
+    rm -rf "$INSTALL_DIR"
+  fi
+
+  if [ "${CLAUDE_DELEGATE_SKIP_MCP:-0}" != "1" ] && python3 -c "import mcp" 2>/dev/null; then
+    echo "  mcp package remains installed. Remove with: pip3 uninstall mcp"
+  fi
+
+  echo "==> Uninstall complete."
+  exit 0
+fi
+
+# ---- install ----
 echo "==> Installing claude-code-delegate..."
 
 command -v git >/dev/null 2>&1 || { echo "ERROR: git is required"; exit 1; }
