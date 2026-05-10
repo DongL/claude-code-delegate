@@ -12,6 +12,70 @@ An orchestrator owns planning and review. This toolkit handles everything in bet
 | A pipeline that standardizes classification, invocation, and output compaction | A replacement for the orchestrator's planning and review role |
 | Transport-agnostic: MCP server + shell wrapper, same pipeline | "Claude Code connected to DeepSeek" — the model backend is replaceable |
 
+## Installation
+
+### One-command
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DongL/claude-code-delegate/main/install.sh | bash
+```
+
+### Manual
+
+```bash
+git clone https://github.com/DongL/claude-code-delegate.git ~/.claude-code-delegate
+mkdir -p ~/.agents/skills
+ln -sfn ~/.claude-code-delegate ~/.agents/skills/claude-code-delegate
+bash ~/.claude-code-delegate/tests/run_tests.sh
+pip3 install mcp  # optional, for MCP server
+```
+
+### As a Codex skill
+
+Symlink into the skill directory so Codex discovers `SKILL.md`:
+
+```bash
+mkdir -p ~/.agents/skills
+ln -sfn "$PWD" ~/.agents/skills/claude-code-delegate
+```
+
+The resolver in `SKILL.md` finds the wrapper across these paths:
+
+1. `$CLAUDE_DELEGATE_DIR` — explicit override
+2. `$HOME/.agents/skills/claude-code-delegate` — current Codex path
+3. `$HOME/.codex/skills/claude-code-delegate` — legacy Codex path
+
+### Verify
+
+```bash
+./scripts/run-claude-code.sh --flash 'hello from delegate'
+```
+
+If the setup is correct, you will see a compact report with model, usage, and cost.
+
+## Provider Setup (DeepSeek V4)
+
+This project defaults to DeepSeek V4 models for low-cost delegation. If you use vanilla Claude Code with Anthropic models, skip this section and override the model per-invocation: CLAUDE_DELEGATE_MODEL=claude-sonnet-4-6 ./scripts/run-claude-code.sh "your prompt"
+
+```bash
+export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
+export ANTHROPIC_AUTH_TOKEN=<your DeepSeek API key>
+export ANTHROPIC_MODEL=deepseek-v4-pro[1m]
+export ANTHROPIC_DEFAULT_OPUS_MODEL=deepseek-v4-pro[1m]
+export ANTHROPIC_DEFAULT_SONNET_MODEL=deepseek-v4-pro[1m]
+export ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek-v4-flash[1m]
+export CLAUDE_CODE_SUBAGENT_MODEL=deepseek-v4-flash[1m]
+export CLAUDE_CODE_EFFORT_LEVEL=max
+```
+
+Get your API key at [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys). Verify:
+
+```bash
+claude -p "hello" --model deepseek-v4-flash[1m]
+```
+
+Or use [cc-switch](https://github.com/farion1231/cc-switch) for GUI-based provider management with 50+ presets.
+
 ## How Your Orchestrator Calls It
 
 ### MCP transport (preferred)
@@ -77,81 +141,19 @@ Direct invocation works for single commands. The delegation layer adds value whe
 
 Use `claude -p` for quick answers. Use the delegation layer when you want consistent, reviewable, AI-to-AI execution.
 
-## Installation
-
-### One-command
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/DongL/claude-code-delegate/main/install.sh | bash
-```
-
-### Manual
-
-```bash
-git clone https://github.com/DongL/claude-code-delegate.git ~/.claude-code-delegate
-mkdir -p ~/.agents/skills
-ln -sfn ~/.claude-code-delegate ~/.agents/skills/claude-code-delegate
-bash ~/.claude-code-delegate/tests/run_tests.sh
-pip3 install mcp  # optional, for MCP server
-```
-
-### As a Codex skill
-
-Symlink into the skill directory so Codex discovers `SKILL.md`:
-
-```bash
-mkdir -p ~/.agents/skills
-ln -sfn "$PWD" ~/.agents/skills/claude-code-delegate
-```
-
-The resolver in `SKILL.md` finds the wrapper across these paths:
-
-1. `$CLAUDE_DELEGATE_DIR` — explicit override
-2. `$HOME/.agents/skills/claude-code-delegate` — current Codex path
-3. `$HOME/.codex/skills/claude-code-delegate` — legacy Codex path
-
-## Provider Setup
-
-This project defaults to DeepSeek V4 models via environment variables:
-
-```bash
-export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
-export ANTHROPIC_AUTH_TOKEN=<your DeepSeek API key>
-export ANTHROPIC_MODEL=deepseek-v4-pro[1m]
-export ANTHROPIC_DEFAULT_OPUS_MODEL=deepseek-v4-pro[1m]
-export ANTHROPIC_DEFAULT_SONNET_MODEL=deepseek-v4-pro[1m]
-export ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek-v4-flash[1m]
-export CLAUDE_CODE_SUBAGENT_MODEL=deepseek-v4-flash[1m]
-export CLAUDE_CODE_EFFORT_LEVEL=max
-```
-
-Get your API key at [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys). Verify:
-
-```bash
-claude -p "hello" --model deepseek-v4-flash[1m]
-```
-
-Or use [cc-switch](https://github.com/farion1231/cc-switch) for GUI-based provider management with 50+ presets.
-
-Override the model for a single delegation:
-
-```bash
-CLAUDE_DELEGATE_MODEL=claude-sonnet-4-6 ./scripts/run-claude-code.sh "your prompt"
-```
-
 ## CLI Reference
 
-| Flag | Effect |
-|------|--------|
-| *(none)* | Pro model, quiet output, bypass permissions (default) |
-| `--pro` / `--flash` | Model tier selection |
-| `--effort low\|medium\|high\|max` | Reasoning budget override |
-| `--interactive` | Auto-accept edits, prompt on tool commands (safe first run) |
-| `--bypass` | Fully non-interactive (explicit alias for default) |
-| `--stream` | Raw stream-json output (for debugging) |
-| `--mcp all\|none\|jira\|linear\|sequential-thinking` | MCP server loading |
-| `--full-context` | Skip prompt template wrapping |
-| `--allow-subagents` | Allow Claude Code to spawn subagents |
+| Flag | Env Var | Effect |
+|------|---------|--------|
+| *(default)* | | Pro model, quiet output, bypass permissions |
+| --pro / --flash | CLAUDE_DELEGATE_MODEL | Model tier selection |
+| --effort low\|medium\|high\|max | CLAUDE_DELEGATE_EFFORT | Reasoning budget override |
+| --quiet / --stream | CLAUDE_DELEGATE_OUTPUT_MODE | Output format (quiet: compact report, stream: raw JSON) |
+| --interactive | CLAUDE_DELEGATE_PERMISSION_MODE | Auto-accept edits, prompt on tool commands |
+| --bypass | CLAUDE_DELEGATE_PERMISSION_MODE | Fully non-interactive (default) |
+| --mcp all\|none\|jira\|linear\|sequential-thinking | CLAUDE_DELEGATE_MCP_MODE | MCP server loading |
+| --full-context | CLAUDE_DELEGATE_CONTEXT_MODE | Skip prompt template wrapping |
+| --allow-subagents | CLAUDE_DELEGATE_SUBAGENTS | Allow Claude Code to spawn subagents |
 
 Env var equivalents and full details: [docs/shell-wrapper-reference.md](docs/shell-wrapper-reference.md). Permission modes and security: [SECURITY.md](SECURITY.md).
 
@@ -160,6 +162,7 @@ Env var equivalents and full details: [docs/shell-wrapper-reference.md](docs/she
 | File | Purpose |
 |------|---------|
 | `SKILL.md` | Orchestrator contract — delegation loop, resolver, responsibilities |
+| `CONTEXT.md` | Domain glossary — Orchestrator, Executor, Pro vs Flash, MCP terminology |
 | `scripts/pipeline.py` | Delegation pipeline — shared by both transports |
 | `scripts/run-pipeline.py` | CLI entry point for shell wrapper consumers |
 | `scripts/run-claude-code.sh` | Shell wrapper — flag parsing only |
