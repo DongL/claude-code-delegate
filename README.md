@@ -182,7 +182,7 @@ export CLAUDE_DELEGATE_PROFILE_LOG=logs/profile.jsonl
 
 **In conversation — just ask:**
 
-> "生成 profiling analysis"
+> "generate profiling analysis"
 
 The MCP tool returns a text summary: record count, success/error rate, model distribution, token usage, cache hit ratio, and cost.
 
