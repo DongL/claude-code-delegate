@@ -174,14 +174,19 @@ Env var equivalents and full details: [docs/shell-wrapper-reference.md](docs/she
 
 ## Profiling
 
-Set `CLAUDE_DELEGATE_PROFILE_LOG` when delegating to record each invocation:
+**Prerequisite**: set `CLAUDE_DELEGATE_PROFILE_LOG` to enable recording. Each delegation appends one JSONL record:
 
-```
-delegate_task(prompt="fix the typo")
-// profiling appends to CLAUDE_DELEGATE_PROFILE_LOG automatically
+```bash
+export CLAUDE_DELEGATE_PROFILE_LOG=logs/profile.jsonl
 ```
 
-Then read the aggregate via MCP:
+**In conversation — just ask:**
+
+> "生成 profiling analysis"
+
+The MCP tool returns a text summary: record count, success/error rate, model distribution, token usage, cache hit ratio, and cost.
+
+**Programmatic access** via MCP:
 
 ```
 // Text summary
