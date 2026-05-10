@@ -174,14 +174,19 @@ CLAUDE_DELEGATE_MODEL=claude-sonnet-4-6 ./scripts/run-claude-code.sh "你的 pro
 
 ## 画像分析
 
-委派时设置 `CLAUDE_DELEGATE_PROFILE_LOG` 记录每次调用：
+**前置条件**：设置 `CLAUDE_DELEGATE_PROFILE_LOG` 启用记录。每次委派追加一条 JSONL 记录：
 
-```
-delegate_task(prompt="修复拼写错误")
-// profiling 自动追加到 CLAUDE_DELEGATE_PROFILE_LOG
+```bash
+export CLAUDE_DELEGATE_PROFILE_LOG=logs/profile.jsonl
 ```
 
-通过 MCP 读取聚合结果：
+**对话中直接问：**
+
+> "生成 profiling analysis"
+
+MCP 工具自动调用并返回文本摘要：记录数、成功/错误率、模型分布、token 用量、缓存命中率、成本。
+
+**程序化访问**——通过 MCP：
 
 ```
 // 文本摘要
