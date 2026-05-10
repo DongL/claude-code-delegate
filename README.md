@@ -1,9 +1,9 @@
 # Claude Code Delegate
 
-> Let your AI orchestrator (Codex, Cursor, Claude Code) delegate implementation tasks to Claude Code — with DeepSeek V4 as the low-cost model backend.
+> Let your AI orchestrator (Codex, Cursor, etc.) delegate implementation tasks to Claude Code — with DeepSeek V4 as the low-cost model backend.
 
 <details open>
-<summary><b>English</b>  ·  <sub>中文 ▼</sub></summary>
+<summary><b>English</b></summary>
 
 An orchestrator owns planning and review. This toolkit handles everything in between: classify the task, wrap it in a prompt template, invoke Claude Code, compact the output, and return a structured result. Neither the wrapper nor the pipeline approves changes — that's the orchestrator's job.
 
@@ -229,7 +229,7 @@ MIT
 </details>
 
 <details>
-<summary><b>中文</b>  ·  <sub>展开中文文档</sub></summary>
+<summary><b>中文</b></summary>
 
 编排器负责规划和审查。本工具处理中间所有环节：分类任务、包装 prompt 模板、调用 Claude Code、压缩输出、返回结构化结果。wrapper 和 pipeline 均不批准变更 —— 这是编排器的职责。
 
