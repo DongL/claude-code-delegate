@@ -68,6 +68,7 @@ You can use this project as a [Codex skill](#as-a-codex-skill), as a [standalone
 | `scripts/mcp_server.py` | MCP server — exposes delegation tools (classify, delegate, aggregate, format_jira_text) over stdio JSON-RPC |
 | `tests/run_tests.sh` | Test runner — covers wrapper flag parsing, adapter classification, and compactor behavior (not agent correctness) |
 | `docs/jira-workflow.md` | Jira-specific delegation conventions |
+| `docs/shell-wrapper-reference.md` | Shell wrapper CLI reference — all flags, env vars, and modes for `scripts/run-claude-code.sh` |
 
 ## Operating Modes
 
