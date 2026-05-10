@@ -174,7 +174,21 @@ CLAUDE_DELEGATE_MODEL=claude-sonnet-4-6 ./scripts/run-claude-code.sh "你的 pro
 
 ## 画像分析
 
-设置 `CLAUDE_DELEGATE_PROFILE_LOG` 记录每次委派：
+委派时设置 `CLAUDE_DELEGATE_PROFILE_LOG` 记录每次调用：
+
+```
+delegate_task(prompt="修复拼写错误")
+// profiling 自动追加到 CLAUDE_DELEGATE_PROFILE_LOG
+```
+
+通过 MCP 读取聚合结果：
+
+```
+aggregate_profile(profile_log_path="logs/profile.jsonl", format="text")
+// → "Records: 12  Success: 10  Error: 2 ..."
+```
+
+Shell 后备方式：
 
 ```bash
 export CLAUDE_DELEGATE_PROFILE_LOG=logs/profile.jsonl
