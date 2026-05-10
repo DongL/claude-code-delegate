@@ -12,6 +12,68 @@
 | 标准化分类、调用和输出压缩的流水线 | 编排器规划和审查角色的替代品 |
 | 传输无关：MCP server + shell wrapper，共享同一 pipeline | 「连接 DeepSeek 的 Claude Code」——模型后端可替换 |
 
+## 安装
+
+### 一行命令
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DongL/claude-code-delegate/main/install.sh | bash
+```
+
+### 手动安装
+
+```bash
+git clone https://github.com/DongL/claude-code-delegate.git ~/.claude-code-delegate
+mkdir -p ~/.agents/skills
+ln -sfn ~/.claude-code-delegate ~/.agents/skills/claude-code-delegate
+bash ~/.claude-code-delegate/tests/run_tests.sh
+pip3 install mcp  # 可选，用于 MCP server
+```
+
+### 作为 Codex skill
+
+创建符号链接到 skill 目录，让 Codex 发现 `SKILL.md`：
+
+```bash
+mkdir -p ~/.agents/skills
+ln -sfn "$PWD" ~/.agents/skills/claude-code-delegate
+```
+
+`SKILL.md` 中的解析器按以下路径查找 wrapper：
+
+1. `$CLAUDE_DELEGATE_DIR` —— 显式覆盖
+2. `$HOME/.agents/skills/claude-code-delegate` —— 当前 Codex 路径
+3. `$HOME/.codex/skills/claude-code-delegate` —— 旧版 Codex 路径
+
+## Provider 设置（DeepSeek V4）
+
+本项目默认使用 DeepSeek V4 模型，通过环境变量配置：
+
+```bash
+export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
+export ANTHROPIC_AUTH_TOKEN=<你的 DeepSeek API key>
+export ANTHROPIC_MODEL=deepseek-v4-pro[1m]
+export ANTHROPIC_DEFAULT_OPUS_MODEL=deepseek-v4-pro[1m]
+export ANTHROPIC_DEFAULT_SONNET_MODEL=deepseek-v4-pro[1m]
+export ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek-v4-flash[1m]
+export CLAUDE_CODE_SUBAGENT_MODEL=deepseek-v4-flash[1m]
+export CLAUDE_CODE_EFFORT_LEVEL=max
+```
+
+在 [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys) 获取 API key。验证：
+
+```bash
+claude -p "hello" --model deepseek-v4-flash[1m]
+```
+
+或者使用 [cc-switch](https://github.com/farion1231/cc-switch) 进行 GUI 方式的 provider 管理，内置 50+ 预设。
+
+覆盖单次委派的模型：
+
+```bash
+CLAUDE_DELEGATE_MODEL=claude-sonnet-4-6 ./scripts/run-claude-code.sh "你的 prompt"
+```
+
 ## 编排器如何调用
 
 ### MCP 传输（推荐）
@@ -76,68 +138,6 @@ claude -p "修复类型错误" --model deepseek-v4-flash[1m]
 - **一致调用** —— 每次委派的 model、effort、permissions、MCP config 完全一致。
 
 快速回答用 `claude -p`。需要一致、可审查的 AI-to-AI 执行时用委派层。
-
-## 安装
-
-### 一行命令
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/DongL/claude-code-delegate/main/install.sh | bash
-```
-
-### 手动安装
-
-```bash
-git clone https://github.com/DongL/claude-code-delegate.git ~/.claude-code-delegate
-mkdir -p ~/.agents/skills
-ln -sfn ~/.claude-code-delegate ~/.agents/skills/claude-code-delegate
-bash ~/.claude-code-delegate/tests/run_tests.sh
-pip3 install mcp  # 可选，用于 MCP server
-```
-
-### 作为 Codex skill
-
-创建符号链接到 skill 目录，让 Codex 发现 `SKILL.md`：
-
-```bash
-mkdir -p ~/.agents/skills
-ln -sfn "$PWD" ~/.agents/skills/claude-code-delegate
-```
-
-`SKILL.md` 中的解析器按以下路径查找 wrapper：
-
-1. `$CLAUDE_DELEGATE_DIR` —— 显式覆盖
-2. `$HOME/.agents/skills/claude-code-delegate` —— 当前 Codex 路径
-3. `$HOME/.codex/skills/claude-code-delegate` —— 旧版 Codex 路径
-
-## Provider 设置
-
-本项目默认使用 DeepSeek V4 模型，通过环境变量配置：
-
-```bash
-export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
-export ANTHROPIC_AUTH_TOKEN=<你的 DeepSeek API key>
-export ANTHROPIC_MODEL=deepseek-v4-pro[1m]
-export ANTHROPIC_DEFAULT_OPUS_MODEL=deepseek-v4-pro[1m]
-export ANTHROPIC_DEFAULT_SONNET_MODEL=deepseek-v4-pro[1m]
-export ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek-v4-flash[1m]
-export CLAUDE_CODE_SUBAGENT_MODEL=deepseek-v4-flash[1m]
-export CLAUDE_CODE_EFFORT_LEVEL=max
-```
-
-在 [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys) 获取 API key。验证：
-
-```bash
-claude -p "hello" --model deepseek-v4-flash[1m]
-```
-
-或者使用 [cc-switch](https://github.com/farion1231/cc-switch) 进行 GUI 方式的 provider 管理，内置 50+ 预设。
-
-覆盖单次委派的模型：
-
-```bash
-CLAUDE_DELEGATE_MODEL=claude-sonnet-4-6 ./scripts/run-claude-code.sh "你的 prompt"
-```
 
 ## CLI 参考
 
