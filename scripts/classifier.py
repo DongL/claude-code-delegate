@@ -50,7 +50,7 @@ def classify_prompt(prompt: str) -> Classification:
 
     if re.search(r"\b[A-Z]+-\d+\b", prompt) and _has_any(text, edit_words):
         return Classification(
-            "small", "code_edit", FLASH_MODEL, "medium", "bypassPermissions", "standard", True
+            "medium", "code_edit", PRO_MODEL, "max", "bypassPermissions", "standard", True
         )
 
     if _has_any(text, ("architecture", "refactor", "migration", "optimize this process", "adr")):
