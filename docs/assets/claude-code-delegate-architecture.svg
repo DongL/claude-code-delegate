@@ -1,72 +1,103 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 620" font-family="system-ui, -apple-system, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 640" font-family="'Rajdhani', 'Helvetica Neue', sans-serif">
   <defs>
+    <pattern id="grid" width="30" height="30" patternUnits="userSpaceOnUse">
+      <line x1="30" y1="0" x2="30" y2="30" stroke="#1a1050" stroke-width="0.5"/>
+      <line x1="0" y1="30" x2="30" y2="30" stroke="#1a1050" stroke-width="0.5"/>
+    </pattern>
+    <filter id="neon-pink" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="neon-cyan" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="neon-amber" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="neon-green" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#0d0520"/>
+    </linearGradient>
     <marker id="arrow-down" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto">
-      <path d="M0,0 L10,5 L0,10 Z" fill="#555"/>
+      <path d="M0,0 L10,5 L0,10 Z" fill="#c0c0dd"/>
     </marker>
     <marker id="arrow-up" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto">
-      <path d="M10,0 L0,5 L10,10 Z" fill="#888"/>
+      <path d="M10,0 L0,5 L10,10 Z" fill="#ff2d78"/>
     </marker>
   </defs>
 
   <!-- Background -->
-  <rect width="720" height="620" fill="#fafafa" rx="8"/>
+  <rect width="760" height="640" fill="url(#bg)"/>
+  <rect width="760" height="640" fill="url(#grid)" opacity="0.5"/>
+  <circle cx="120" cy="380" r="160" fill="#ff2d78" opacity="0.04"/>
+  <circle cx="640" cy="180" r="140" fill="#00d4ff" opacity="0.04"/>
 
   <!-- Title -->
-  <text x="360" y="28" text-anchor="middle" font-size="14" font-weight="600" fill="#444">Architecture</text>
+  <text x="380" y="30" text-anchor="middle" font-size="15" font-weight="700" fill="#c0c0dd" letter-spacing="1">Architecture</text>
 
-  <!-- ─── Layer 1: Orchestrator ─── -->
-  <rect x="40" y="40" width="640" height="115" fill="#e3f2fd" stroke="#1976d2" stroke-width="2" rx="6"/>
-  <rect x="40" y="40" width="640" height="30" fill="#1976d2" rx="6"/>
-  <rect x="40" y="56" width="640" height="14" fill="#1976d2"/>
-  <text x="360" y="60" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">Orchestrator</text>
-  <text x="360" y="76" text-anchor="middle" font-size="11" fill="#bbb">Codex / Cursor / Human</text>
-  <text x="60" y="100" font-size="11" fill="#333">• Reads project context and authors a concrete implementation plan</text>
-  <text x="60" y="118" font-size="11" fill="#333">• Reviews diff and test output, decides: accept / reject / request correction</text>
-  <text x="60" y="136" font-size="11" fill="#333">• Delivers final summary to the user</text>
+  <!-- ═══ Layer 1: Orchestrator ═══ -->
+  <rect x="40" y="44" width="680" height="112" fill="#0d0d22" stroke="#ff2d78" stroke-width="1.2" rx="6"/>
+  <rect x="40" y="44" width="680" height="112" fill="none" stroke="#ff2d78" stroke-width="0.6" rx="6" opacity="0.3" filter="url(#neon-pink)"/>
+  <rect x="40" y="44" width="680" height="28" fill="#ff2d78" rx="6"/>
+  <rect x="40" y="58" width="680" height="14" fill="#ff2d78"/>
+  <text x="380" y="63" text-anchor="middle" font-size="14" font-weight="700" fill="#0a0a1a">Orchestrator</text>
+  <text x="380" y="80" text-anchor="middle" font-size="12" font-weight="600" fill="#ffb3cc">Codex / Cursor / Human</text>
+  <text x="60" y="102" font-size="12" font-weight="500" fill="#c0c0dd">• Reads project context and authors a concrete implementation plan</text>
+  <text x="60" y="120" font-size="12" font-weight="500" fill="#c0c0dd">• Reviews diff and test output, decides: accept / reject / request correction</text>
+  <text x="60" y="138" font-size="12" font-weight="500" fill="#c0c0dd">• Delivers final summary to the user</text>
 
-  <!-- Arrow: Plan → Delegate -->
-  <line x1="360" y1="155" x2="360" y2="185" stroke="#555" stroke-width="2" marker-end="url(#arrow-down)"/>
-  <text x="370" y="175" font-size="10" fill="#666" font-style="italic">plan</text>
+  <!-- Arrow -->
+  <line x1="380" y1="156" x2="380" y2="182" stroke="#c0c0dd" stroke-width="1.5" marker-end="url(#arrow-down)"/>
+  <text x="392" y="174" font-size="11" fill="#c0c0dd" font-style="italic" font-weight="600">plan</text>
 
-  <!-- ─── Layer 2: Delegate Layer ─── -->
-  <rect x="40" y="190" width="640" height="135" fill="#fff3e0" stroke="#f57c00" stroke-width="2" rx="6"/>
-  <rect x="40" y="190" width="640" height="30" fill="#f57c00" rx="6"/>
-  <rect x="40" y="206" width="640" height="14" fill="#f57c00"/>
-  <text x="360" y="210" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">Claude Code Delegate</text>
-  <text x="360" y="226" text-anchor="middle" font-size="11" fill="#ddd">Adapts plan → invokes runtime → compacts results</text>
-  <text x="60" y="250" font-size="11" fill="#333">• SKILL.md — contract defining the delegation loop and orchestrator responsibilities</text>
-  <text x="60" y="268" font-size="11" fill="#333">• Wrapper — standardizes model, effort, permission, MCP, and output format</text>
-  <text x="60" y="286" font-size="11" fill="#333">• Adapter — classifies task size/type, selects prompt template, routes to executor</text>
-  <text x="60" y="304" font-size="11" fill="#333">• Compactor — reduces raw JSON stream to concise changed-files + test-results report</text>
+  <!-- ═══ Layer 2: Claude Code Delegate ═══ -->
+  <rect x="40" y="190" width="680" height="132" fill="#0d0d22" stroke="#00d4ff" stroke-width="1.2" rx="6"/>
+  <rect x="40" y="190" width="680" height="132" fill="none" stroke="#00d4ff" stroke-width="0.6" rx="6" opacity="0.3" filter="url(#neon-cyan)"/>
+  <rect x="40" y="190" width="680" height="28" fill="#00d4ff" rx="6"/>
+  <rect x="40" y="204" width="680" height="14" fill="#00d4ff"/>
+  <text x="380" y="209" text-anchor="middle" font-size="14" font-weight="700" fill="#0a0a1a">Claude Code Delegate</text>
+  <text x="380" y="226" text-anchor="middle" font-size="12" font-weight="600" fill="#80ebff">Adapts plan → invokes runtime → compacts results</text>
+  <text x="60" y="250" font-size="12" font-weight="500" fill="#c0c0dd">• SKILL.md — contract defining the delegation loop and orchestrator responsibilities</text>
+  <text x="60" y="268" font-size="12" font-weight="500" fill="#c0c0dd">• Wrapper — standardizes model, effort, permission, MCP, and output format</text>
+  <text x="60" y="286" font-size="12" font-weight="500" fill="#c0c0dd">• Adapter — classifies task size/type, selects prompt template, routes to executor</text>
+  <text x="60" y="304" font-size="12" font-weight="500" fill="#c0c0dd">• Compactor — reduces raw JSON stream to concise changed-files + test-results report</text>
 
-  <!-- Arrow: Delegate → Execute -->
-  <line x1="360" y1="325" x2="360" y2="355" stroke="#555" stroke-width="2" marker-end="url(#arrow-down)"/>
-  <text x="370" y="345" font-size="10" fill="#666" font-style="italic">execution prompt</text>
+  <!-- Arrow -->
+  <line x1="380" y1="322" x2="380" y2="348" stroke="#c0c0dd" stroke-width="1.5" marker-end="url(#arrow-down)"/>
+  <text x="392" y="340" font-size="11" fill="#c0c0dd" font-style="italic" font-weight="600">execution prompt</text>
 
-  <!-- ─── Layer 3: Execution Runtime ─── -->
-  <rect x="40" y="360" width="640" height="105" fill="#e8f5e9" stroke="#388e3c" stroke-width="2" rx="6"/>
-  <rect x="40" y="360" width="640" height="30" fill="#388e3c" rx="6"/>
-  <rect x="40" y="376" width="640" height="14" fill="#388e3c"/>
-  <text x="360" y="380" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">Claude Code Execution Runtime</text>
-  <text x="360" y="396" text-anchor="middle" font-size="11" fill="#bbb">DeepSeek V4 model backend</text>
-  <text x="60" y="418" font-size="11" fill="#333">• Edits files according to the orchestrator's plan</text>
-  <text x="60" y="436" font-size="11" fill="#333">• Runs commands and verification tests</text>
-  <text x="60" y="454" font-size="11" fill="#333">• Reports changed files, command output, test results</text>
+  <!-- ═══ Layer 3: Execution Runtime ═══ -->
+  <rect x="40" y="356" width="680" height="102" fill="#0d0d22" stroke="#ff8c00" stroke-width="1.2" rx="6"/>
+  <rect x="40" y="356" width="680" height="102" fill="none" stroke="#ff8c00" stroke-width="0.6" rx="6" opacity="0.3" filter="url(#neon-amber)"/>
+  <rect x="40" y="356" width="680" height="28" fill="#ff8c00" rx="6"/>
+  <rect x="40" y="370" width="680" height="14" fill="#ff8c00"/>
+  <text x="380" y="375" text-anchor="middle" font-size="14" font-weight="700" fill="#0a0a1a">Claude Code Execution Runtime</text>
+  <text x="380" y="392" text-anchor="middle" font-size="12" font-weight="600" fill="#ffcc80">DeepSeek V4 model backend</text>
+  <text x="60" y="414" font-size="12" font-weight="500" fill="#c0c0dd">• Edits files according to the orchestrator's plan</text>
+  <text x="60" y="432" font-size="12" font-weight="500" fill="#c0c0dd">• Runs commands and verification tests</text>
+  <text x="60" y="450" font-size="12" font-weight="500" fill="#c0c0dd">• Reports changed files, command output, test results</text>
 
-  <!-- Arrow: Compact → Review -->
-  <line x1="360" y1="465" x2="360" y2="495" stroke="#555" stroke-width="2" marker-end="url(#arrow-down)"/>
-  <text x="370" y="485" font-size="10" fill="#666" font-style="italic">compacted report</text>
+  <!-- Arrow -->
+  <line x1="380" y1="458" x2="380" y2="484" stroke="#c0c0dd" stroke-width="1.5" marker-end="url(#arrow-down)"/>
+  <text x="392" y="476" font-size="11" fill="#c0c0dd" font-style="italic" font-weight="600">compacted report</text>
 
-  <!-- ─── Layer 4: Review ─── -->
-  <rect x="40" y="500" width="640" height="100" fill="#fce4ec" stroke="#c62828" stroke-width="2" rx="6"/>
-  <rect x="40" y="500" width="640" height="30" fill="#c62828" rx="6"/>
-  <rect x="40" y="516" width="640" height="14" fill="#c62828"/>
-  <text x="360" y="520" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">Orchestrator Review</text>
-  <text x="60" y="550" font-size="11" fill="#333">• Inspects git diff, test output, and compacted report</text>
-  <text x="60" y="568" font-size="11" fill="#333">• Accepts patch, requests targeted correction, or rejects unsafe diff</text>
-  <text x="60" y="586" font-size="11" fill="#333">• Wrapper does not approve or reject — review is the orchestrator's responsibility</text>
+  <!-- ═══ Layer 4: Review ═══ -->
+  <rect x="40" y="492" width="680" height="98" fill="#0d0d22" stroke="#00e676" stroke-width="1.2" rx="6"/>
+  <rect x="40" y="492" width="680" height="98" fill="none" stroke="#00e676" stroke-width="0.6" rx="6" opacity="0.3" filter="url(#neon-green)"/>
+  <rect x="40" y="492" width="680" height="28" fill="#00e676" rx="6"/>
+  <rect x="40" y="506" width="680" height="14" fill="#00e676"/>
+  <text x="380" y="511" text-anchor="middle" font-size="14" font-weight="700" fill="#0a0a1a">Orchestrator Review</text>
+  <text x="60" y="540" font-size="12" font-weight="500" fill="#c0c0dd">• Inspects git diff, test output, and compacted report</text>
+  <text x="60" y="558" font-size="12" font-weight="500" fill="#c0c0dd">• Accepts patch, requests targeted correction, or rejects unsafe diff</text>
+  <text x="60" y="576" font-size="12" font-weight="500" fill="#8888aa" font-style="italic">• Wrapper does not approve or reject — review is the orchestrator's responsibility</text>
 
-  <!-- ─── Correction Loop Arrow (right side) ─── -->
-  <path d="M690,550 L705,550 L705,97 L690,97" fill="none" stroke="#888" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrow-up)"/>
-  <text x="710" y="340" text-anchor="middle" font-size="10" fill="#888" font-style="italic" transform="rotate(90, 710, 340)">correction loop</text>
+  <!-- ═══ Correction Loop ═══ -->
+  <path d="M730,542 L746,542 L746,88 L730,88" fill="none" stroke="#ff2d78" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-up)" filter="url(#neon-pink)"/>
+  <text x="754" y="330" text-anchor="middle" font-size="11" fill="#ff2d78" font-weight="700" letter-spacing="2" transform="rotate(90, 754, 330)">correction loop</text>
 </svg>
