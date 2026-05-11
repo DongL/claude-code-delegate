@@ -9,49 +9,47 @@ description: Delegate an orchestrator-authored implementation plan to Claude Cod
 
 Use this workflow when the user wants an orchestrator to own planning/review while Claude Code performs implementation. Each delegation pass must clear every mandatory gate. If a gate does not apply, note the skip and move to the next.
 
-Default mode is compact delegation. The orchestrator should optimize its own token use by avoiding streamed Claude output unless debugging the delegation system itself.
-
-### Non-Negotiable Delegation Gates
-
-For every delegation task, the orchestrator MUST complete these gates in order:
+### Mandatory Gates
 
 #### Plan Gate
-- Read only enough context to write a concrete plan.
-- Show the plan to the user before invoking Claude Code.
-- Include ownership boundaries and verification commands.
+- [ ] Read enough local context to understand the affected area.
+- [ ] Show a concrete implementation plan to the user, including ownership boundaries and verification commands.
+- [ ] Confirm the plan does not broaden scope beyond what was asked.
 
 #### Delegate Gate
-- Invoke only through `run-claude-code.sh`.
-- Default to `--quiet`.
-- Use `--stream` only when diagnosing wrapper/API/permission failures. Before re-streaming, check stderr heartbeat — if it is alive, the executor is running; no need to restart or re-stream.
-- Include prompt requirements per the Prompt Requirements section.
+- [ ] Invoke only through `run-claude-code.sh` via the resolver function.
+- [ ] Default to quiet/compact mode (`--quiet`). Use `--stream` only for wrapper/API/permission diagnosis.
+- [ ] Include prompt requirements per the Prompt Requirements section.
 
 #### Execute Gate
-- Do not patch locally while Claude Code is executing.
-- If Claude Code is wrong, slow, or stuck, stop or wait, then send a correction prompt through Claude Code.
+- [ ] Do not make local implementation edits while Claude Code is executing.
+- [ ] If Claude Code appears stuck, re-run with `--stream` to diagnose — do not take over locally.
+- [ ] If Claude Code produces a wrong or incomplete result, stop and re-delegate the correction — do not patch locally.
 
 #### Compact Gate
-- Wait for wrapper completion.
-- Show the compact report: result, changed files, tests or verification, token usage/cost, terminal status.
+- [ ] Wait for the wrapper to complete.
+- [ ] Show the compact result: changed files, verification results, token usage/cost, terminal status.
 
 #### Review Gate
-- Inspect `git diff --stat`.
-- Inspect relevant diffs.
-- Run focused checks locally.
-- Do not accept unreviewed delegate output.
+- [ ] Run `git diff --stat` and inspect relevant diffs locally.
+- [ ] Run focused tests or verification commands.
+- [ ] Do not accept unreviewed changes.
 
 #### Correction Gate
-- If the diff or checks fail, write a targeted correction plan.
-- Re-delegate correction through Claude Code.
-- Do not fix locally unless the user explicitly permits Codex takeover.
-- Surface results after each correction pass so the user can intervene if convergence stalls.
+- [ ] If the diff is wrong or incomplete, show a targeted correction plan to the user.
+- [ ] Re-delegate the correction through Claude Code using the same wrapper invocation.
+- [ ] Surface results after each correction pass so the user can intervene if convergence stalls.
 
 #### Report Gate
-- Final answer includes changed files, verification, residual risk, and caveats.
+- [ ] Final summary includes: changed files, tests run, residual risk, and any caveats.
 
 ### Local Implementation Ban
 
-When this skill is active, the orchestrator may inspect, plan, and review locally, but must not make implementation edits locally unless the user explicitly asks Codex to take over. Every code change should flow through Claude Code via the wrapper.
+While this skill is active, the orchestrator may inspect, plan, and review locally but must not make implementation edits locally. Every code change must flow through Claude Code via the wrapper. The orchestrator may only edit locally if the user explicitly authorizes a Codex takeover.
+
+### Quiet/Compact Default
+
+Always prefer `--quiet` mode. This preserves orchestrator tokens and produces a compact final report. Streaming output is noisy, wastes context window, and should only be used for wrapper/API/permission diagnosis.
 
 ## Invocation
 
