@@ -7,6 +7,10 @@
 
 An orchestrator owns planning and review. This toolkit handles everything in between: classify the task, wrap it in a prompt template, invoke Claude Code, compact the output, and return a structured result. Neither the wrapper nor the pipeline approves changes — that's the orchestrator's job.
 
+<p align="center">
+  <img src="docs/assets/claude-code-delegate-architecture.svg" alt="Architecture" width="640">
+</p>
+
 ## What This Is / Is Not
 
 | This project is... | This project is not... |
@@ -234,6 +238,10 @@ MIT
 <summary><b>中文</b></summary>
 
 编排器负责规划和审查。本工具处理中间所有环节：分类任务、包装 prompt 模板、调用 Claude Code、压缩输出、返回结构化结果。wrapper 和 pipeline 均不批准变更 —— 这是编排器的职责。
+
+<p align="center">
+  <img src="docs/assets/claude-code-delegate-architecture.svg" alt="架构图" width="640">
+</p>
 
 ## 这是什么 / 不是什么
 
