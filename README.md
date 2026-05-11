@@ -30,7 +30,7 @@ git clone https://github.com/DongL/claude-code-delegate.git ~/.claude-code-deleg
 mkdir -p ~/.agents/skills
 ln -sfn ~/.claude-code-delegate ~/.agents/skills/claude-code-delegate
 bash ~/.claude-code-delegate/tests/run_tests.sh
-pip3 install mcp  # optional, for MCP server
+pip3 install mcp  # optional: Python SDK dependency for scripts/mcp_server.py
 ```
 
 ### As a Codex skill
@@ -258,7 +258,7 @@ git clone https://github.com/DongL/claude-code-delegate.git ~/.claude-code-deleg
 mkdir -p ~/.agents/skills
 ln -sfn ~/.claude-code-delegate ~/.agents/skills/claude-code-delegate
 bash ~/.claude-code-delegate/tests/run_tests.sh
-pip3 install mcp  # 可选，用于 MCP server
+pip3 install mcp  # 可选：scripts/mcp_server.py 的 Python SDK 依赖
 ```
 
 ### 作为 Codex skill
