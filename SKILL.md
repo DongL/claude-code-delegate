@@ -18,7 +18,7 @@ Use this workflow when the user wants an orchestrator to own planning/review whi
 
 #### Delegate Gate
 - [ ] Invoke only through `run-claude-code.sh` via the resolver function.
-- [ ] Default to quiet/compact mode (`--quiet`). Use `--stream` only for wrapper/API/permission diagnosis.
+- [ ] Default to quiet/compact mode (`--quiet`). Use `--stream` only for wrapper/API/permission diagnosis. Before re-streaming, check stderr heartbeat — if alive, executor is running; no need to restart.
 - [ ] Include prompt requirements per the Prompt Requirements section.
 
 #### Execute Gate
