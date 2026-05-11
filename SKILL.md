@@ -19,6 +19,7 @@ Use this workflow when the user wants an orchestrator to own planning/review whi
 #### Delegate Gate
 - [ ] Invoke only through `run-claude-code.sh` via the resolver function.
 - [ ] Default to quiet/compact mode (`--quiet`). Use `--stream` only for wrapper/API/permission diagnosis. Before re-streaming, check stderr heartbeat — if alive, executor is running; no need to restart.
+- [ ] The pipeline auto-classifies model tier and effort from the prompt. If the orchestrator knows the task is simpler or harder than keyword matching suggests, override with `--pro` / `--flash` / `--effort`. Prefer explicit overrides for non-trivial tasks.
 - [ ] Include prompt requirements per the Prompt Requirements section.
 
 #### Execute Gate
