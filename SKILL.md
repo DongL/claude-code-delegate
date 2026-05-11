@@ -20,6 +20,7 @@ Use this workflow when the user wants an orchestrator to own planning/review whi
 - [ ] Invoke only through `run-claude-code.sh` via the resolver function.
 - [ ] Default to quiet/compact mode (`--quiet`). Streaming is a common violation — reserve `--stream` for wrapper/API/permission diagnosis only. Before re-streaming, check stderr heartbeat — if alive, executor is running; no need to restart.
 - [ ] The pipeline auto-classifies model tier and effort from the prompt. If the orchestrator knows the task is simpler or harder than keyword matching suggests, override with `--pro` / `--flash` / `--effort`. Prefer explicit overrides for non-trivial tasks.
+- [ ] Default `--mcp all` for general tasks. Use `--mcp jira` when the executor needs Jira MCP tools (issue queries, transitions, comments). Use `--mcp none` for isolated execution without MCP servers.
 - [ ] Include prompt requirements per the Prompt Requirements section.
 
 #### Execute Gate
