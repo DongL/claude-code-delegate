@@ -23,7 +23,7 @@ For every delegation task, the orchestrator MUST complete these gates in order:
 #### Delegate Gate
 - Invoke only through `run-claude-code.sh`.
 - Default to `--quiet`.
-- Use `--stream` only when diagnosing wrapper/API/permission failures.
+- Use `--stream` only when diagnosing wrapper/API/permission failures. Before re-streaming, check stderr heartbeat — if it is alive, the executor is running; no need to restart or re-stream.
 - Include prompt requirements per the Prompt Requirements section.
 
 #### Execute Gate
