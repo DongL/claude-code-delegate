@@ -7,7 +7,6 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -46,12 +45,14 @@ def generate_mcp_config(mcp_mode: str, source_config_path: str | None) -> tuple[
     if mcp_mode not in mcp_servers:
         raise ValueError(f"MCP server '{mcp_mode}' not found in {source}")
 
-    server_config = {mcp_mode: mcp_servers[mcp_mode]}
-    temp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
-    json.dump({"mcpServers": server_config}, temp_file)
-    temp_file.close()
-
-    return (["--strict-mcp-config", temp_file.name], temp_file.name)
+    server_config = dict(mcp_servers[mcp_mode])
+    env_vars = server_config.pop("env", None)
+    if isinstance(env_vars, dict):
+        for k, v in env_vars.items():
+            if k not in os.environ:
+                os.environ[k] = v
+    config_json = json.dumps({"mcpServers": {mcp_mode: server_config}})
+    return (["--strict-mcp-config", config_json], None)
 
 
 def start_heartbeat(interval_seconds: int, model: str, effort: str, mcp_mode: str, output_mode: str) -> threading.Thread | None:
