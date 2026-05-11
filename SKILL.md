@@ -7,17 +7,49 @@ description: Delegate an orchestrator-authored implementation plan to Claude Cod
 
 ## Contract
 
-Use this workflow when the user wants an orchestrator to own planning/review while Claude Code performs implementation.
+Use this workflow when the user wants an orchestrator to own planning/review while Claude Code performs implementation. Each delegation pass must clear every mandatory gate. If a gate does not apply, note the skip and move to the next.
 
-Required loop:
+### Mandatory Gates
 
-1. The orchestrator reads enough local context to make a concrete plan.
-2. The orchestrator shows the implementation plan to the user before invoking Claude Code.
-3. The orchestrator invokes Claude Code to execute that plan.
-4. The orchestrator shows Claude Code's output to the user, including its changed-file list and verification results.
-5. The orchestrator reviews Claude Code's diff and test output.
-6. If needed, the orchestrator shows the targeted correction plan and invokes Claude Code again. Iterate until the diff is correct, surfacing results to the user after each pass so they can intervene if convergence stalls.
-7. The orchestrator gives the user a concise final review with changed files, tests, and residual risk.
+#### Plan Gate
+- [ ] Read enough local context to understand the affected area.
+- [ ] Show a concrete implementation plan to the user, including ownership boundaries and verification commands.
+- [ ] Confirm the plan does not broaden scope beyond what was asked.
+
+#### Delegate Gate
+- [ ] Invoke only through `run-claude-code.sh` via the resolver function.
+- [ ] Default to quiet/compact mode (`--quiet`). Use `--stream` only for wrapper/API/permission diagnosis.
+- [ ] Include prompt requirements per the Prompt Requirements section.
+
+#### Execute Gate
+- [ ] Do not make local implementation edits while Claude Code is executing.
+- [ ] If Claude Code appears stuck, re-run with `--stream` to diagnose — do not take over locally.
+- [ ] If Claude Code produces a wrong or incomplete result, stop and re-delegate the correction — do not patch locally.
+
+#### Compact Gate
+- [ ] Wait for the wrapper to complete.
+- [ ] Show the compact result: changed files, verification results, token usage/cost, terminal status.
+
+#### Review Gate
+- [ ] Run `git diff --stat` and inspect relevant diffs locally.
+- [ ] Run focused tests or verification commands.
+- [ ] Do not accept unreviewed changes.
+
+#### Correction Gate
+- [ ] If the diff is wrong or incomplete, show a targeted correction plan to the user.
+- [ ] Re-delegate the correction through Claude Code using the same wrapper invocation.
+- [ ] Surface results after each correction pass so the user can intervene if convergence stalls.
+
+#### Report Gate
+- [ ] Final summary includes: changed files, tests run, residual risk, and any caveats.
+
+### Local Implementation Ban
+
+While this skill is active, the orchestrator may inspect, plan, and review locally but must not make implementation edits locally. Every code change must flow through Claude Code via the wrapper. The orchestrator may only edit locally if the user explicitly authorizes a Codex takeover.
+
+### Quiet/Compact Default
+
+Always prefer `--quiet` mode. This preserves orchestrator tokens and produces a compact final report. Streaming output is noisy, wastes context window, and should only be used for wrapper/API/permission diagnosis.
 
 ## Invocation
 
@@ -132,6 +164,14 @@ After Claude Code returns:
 ## Issue Tracker Integration
 
 When delegating Jira or issue tracker work, apply Jira-safe plain text formatting (no Markdown). See [docs/jira-workflow.md](docs/jira-workflow.md) for details and the `scripts/jira-safe-text.py` utility.
+
+## Common Violations
+
+- **Noisy stream watching.** Using `--stream` as the default output mode wastes orchestrator tokens. Reserve streaming for diagnosis.
+- **Local patching during delegation.** Editing files locally while Claude Code is running or after it produces a suboptimal result. Stop and re-delegate instead.
+- **Skipping compact output.** Not waiting for the wrapper to complete or not showing the compact result to the user.
+- **Accepting without review.** Trusting Claude Code output without running `git diff --stat`, inspecting diffs, or running focused checks.
+- **Scope creep.** Broadening the plan beyond what the user asked without re-confirming.
 
 ## Known Failure Mode
 
