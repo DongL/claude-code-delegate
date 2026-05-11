@@ -53,10 +53,6 @@ For every delegation task, the orchestrator MUST complete these gates in order:
 
 When this skill is active, the orchestrator may inspect, plan, and review locally, but must not make implementation edits locally unless the user explicitly asks Codex to take over. Every code change should flow through Claude Code via the wrapper.
 
-### Quiet/Compact Default
-
-Always prefer `--quiet` mode. This preserves orchestrator tokens and produces a compact final report. Streaming output is noisy, wastes context window, and should only be used for wrapper/API/permission diagnosis.
-
 ## Invocation
 
 Two transports are available: the shell wrapper (this section) and the MCP server (see [MCP Transport](#mcp-transport) below). Both use the same classifier, envelope builder, invoker, and compactor.
