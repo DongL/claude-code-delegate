@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -52,7 +53,10 @@ def build_profile_record(
 def append_profile_record(record: dict, profile_log_path: str) -> None:
     if not profile_log_path:
         return
-    path = Path(profile_log_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+    try:
+        path = Path(profile_log_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+    except OSError as e:
+        print(f"Profile log write failed ({profile_log_path}): {e}", file=sys.stderr)
