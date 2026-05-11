@@ -14,11 +14,11 @@ Use this workflow when the user wants an orchestrator to own planning/review whi
 #### Plan Gate
 - [ ] Read enough local context to understand the affected area.
 - [ ] Show a concrete implementation plan to the user, including ownership boundaries and verification commands.
-- [ ] Confirm the plan does not broaden scope beyond what was asked.
+- [ ] Confirm the plan does not broaden scope beyond what was asked. Scope creep is the most common violation — plan only what the user requested.
 
 #### Delegate Gate
 - [ ] Invoke only through `run-claude-code.sh` via the resolver function.
-- [ ] Default to quiet/compact mode (`--quiet`). Use `--stream` only for wrapper/API/permission diagnosis. Before re-streaming, check stderr heartbeat — if alive, executor is running; no need to restart.
+- [ ] Default to quiet/compact mode (`--quiet`). Streaming is a common violation — reserve `--stream` for wrapper/API/permission diagnosis only. Before re-streaming, check stderr heartbeat — if alive, executor is running; no need to restart.
 - [ ] The pipeline auto-classifies model tier and effort from the prompt. If the orchestrator knows the task is simpler or harder than keyword matching suggests, override with `--pro` / `--flash` / `--effort`. Prefer explicit overrides for non-trivial tasks.
 - [ ] Include prompt requirements per the Prompt Requirements section.
 
@@ -165,14 +165,6 @@ After Claude Code returns:
 ## Issue Tracker Integration
 
 When delegating Jira or issue tracker work, apply Jira-safe plain text formatting (no Markdown). See [docs/jira-workflow.md](docs/jira-workflow.md) for details and the `scripts/jira-safe-text.py` utility.
-
-## Common Violations
-
-- **Noisy stream watching.** Using `--stream` as the default output mode wastes orchestrator tokens. Reserve streaming for diagnosis.
-- **Local patching during delegation.** Editing files locally while Claude Code is running or after it produces a suboptimal result. Stop and re-delegate instead.
-- **Skipping compact output.** Not waiting for the wrapper to complete or not showing the compact result to the user.
-- **Accepting without review.** Trusting Claude Code output without running `git diff --stat`, inspecting diffs, or running focused checks.
-- **Scope creep.** Broadening the plan beyond what the user asked without re-confirming.
 
 ## Known Failure Mode
 
