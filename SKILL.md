@@ -137,4 +137,6 @@ When delegating Jira or issue tracker work, apply Jira-safe plain text formattin
 
 Plain `claude -p` with default permissions can appear to hang because Claude Code is waiting on permission requests. The wrapper default `bypassPermissions` avoids this entirely by suppressing all permission prompts. For debugging sessions where you want to observe tool commands before they run, use the `--interactive` flag (which sets `acceptEdits` — auto-accepts file edits but prompts on Bash/tool commands).
 
+During long-running delegations, the pipeline prints a heartbeat to stderr every 30 seconds (`Claude Code still running: model=... effort=...`). If Claude Code appears silent, check stderr first — an active heartbeat means the executor is running, its absence means it has stopped or crashed. Set `CLAUDE_DELEGATE_HEARTBEAT_SECONDS=0` to disable the heartbeat (e.g. for CI pipelines).
+
 Provider or org/auth access errors usually mean Claude Code is not currently switched to a provider that can serve `deepseek-v4-pro[1m]`, or the provider token in `~/.claude/settings.json` is malformed/expired. Confirm the configured `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and model values without printing secret token contents.
