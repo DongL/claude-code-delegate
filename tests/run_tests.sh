@@ -21,6 +21,8 @@ cat > "$SANDBOX/claude" <<'FAKE'
 #!/usr/bin/env bash
 echo "args:$*" >> "${CLAUDE_DELEGATE_TEST_CAPTURE:-/dev/null}"
 echo "MAX_THINKING_TOKENS:${MAX_THINKING_TOKENS:-}" >> "${CLAUDE_DELEGATE_TEST_CAPTURE:-/dev/null}"
+echo "ANTHROPIC_BASE_URL:${ANTHROPIC_BASE_URL:-}" >> "${CLAUDE_DELEGATE_TEST_CAPTURE:-/dev/null}"
+echo "ANTHROPIC_AUTH_TOKEN:${ANTHROPIC_AUTH_TOKEN:-}" >> "${CLAUDE_DELEGATE_TEST_CAPTURE:-/dev/null}"
 cat <<'JSONEOF'
 {"type":"result","result":"done","usage":{"input_tokens":5,"output_tokens":10}}
 JSONEOF
@@ -1035,6 +1037,49 @@ h = start_heartbeat(1, 'pro', 'max', 'all', 'quiet')
 print('heartbeat_thread_daemon={}'.format(h.daemon))"
 
 test_invoker_py \
+  "load_claude_settings_env backfills settings env" \
+  "loaded_settings_env" 0 \
+  "from invoker import load_claude_settings_env
+from pathlib import Path
+home = tempfile.mkdtemp()
+old_home = os.environ.get('HOME')
+try:
+    os.environ['HOME'] = home
+    settings = Path(home) / '.claude' / 'settings.json'
+    settings.parent.mkdir(parents=True)
+    settings.write_text(json.dumps({'env': {'ANTHROPIC_BASE_URL': 'https://example.invalid', 'ANTHROPIC_AUTH_TOKEN': 'secret'}}))
+    env = load_claude_settings_env({'PATH': os.environ['PATH']})
+    assert env['ANTHROPIC_BASE_URL'] == 'https://example.invalid'
+    assert env['ANTHROPIC_AUTH_TOKEN'] == 'secret'
+    print('loaded_settings_env')
+finally:
+    if old_home is not None:
+        os.environ['HOME'] = old_home
+    else:
+        os.environ.pop('HOME', None)"
+
+test_invoker_py \
+  "load_claude_settings_env preserves process env" \
+  "preserved_process_env" 0 \
+  "from invoker import load_claude_settings_env
+from pathlib import Path
+home = tempfile.mkdtemp()
+old_home = os.environ.get('HOME')
+try:
+    os.environ['HOME'] = home
+    settings = Path(home) / '.claude' / 'settings.json'
+    settings.parent.mkdir(parents=True)
+    settings.write_text(json.dumps({'env': {'ANTHROPIC_BASE_URL': 'https://settings.invalid'}}))
+    env = load_claude_settings_env({'PATH': os.environ['PATH'], 'ANTHROPIC_BASE_URL': 'https://process.invalid'})
+    assert env['ANTHROPIC_BASE_URL'] == 'https://process.invalid'
+    print('preserved_process_env')
+finally:
+    if old_home is not None:
+        os.environ['HOME'] = old_home
+    else:
+        os.environ.pop('HOME', None)"
+
+test_invoker_py \
   "invoke_claude with fake claude returns result" \
   "invoke_claude OK" 0 \
   "from invoker import InvokerConfig, invoke_claude
@@ -1120,6 +1165,41 @@ result = invoke_claude(c)
 import json
 data = json.loads(result.stdout)
 print(data['result'])"
+
+test_invoker_py \
+  "invoke_claude passes Claude settings env to child" \
+  "CHILD_ENV_OK" 0 \
+  "from invoker import InvokerConfig, invoke_claude
+from pathlib import Path
+home = tempfile.mkdtemp()
+old_home = os.environ.get('HOME')
+capture = tempfile.NamedTemporaryFile(delete=False)
+capture.close()
+try:
+    os.environ['HOME'] = home
+    os.environ['CLAUDE_DELEGATE_TEST_CAPTURE'] = capture.name
+    saved_base_url = os.environ.pop('ANTHROPIC_BASE_URL', None)
+    saved_auth_token = os.environ.pop('ANTHROPIC_AUTH_TOKEN', None)
+    settings = Path(home) / '.claude' / 'settings.json'
+    settings.parent.mkdir(parents=True)
+    settings.write_text(json.dumps({'env': {'ANTHROPIC_BASE_URL': 'https://example.invalid', 'ANTHROPIC_AUTH_TOKEN': 'secret'}}))
+    c = InvokerConfig(model='pro', effort='max', permission_mode='bypassPermissions', mcp_mode='all', subagent_mode='off', heartbeat_seconds=0, output_mode='quiet', prompt='test')
+    invoke_claude(c)
+    captured = Path(capture.name).read_text()
+    assert 'ANTHROPIC_BASE_URL:https://example.invalid' in captured
+    assert 'ANTHROPIC_AUTH_TOKEN:secret' in captured
+    print('CHILD_ENV_OK')
+finally:
+    os.environ.pop('CLAUDE_DELEGATE_TEST_CAPTURE', None)
+    if saved_base_url is not None:
+        os.environ['ANTHROPIC_BASE_URL'] = saved_base_url
+    if saved_auth_token is not None:
+        os.environ['ANTHROPIC_AUTH_TOKEN'] = saved_auth_token
+    if old_home is not None:
+        os.environ['HOME'] = old_home
+    else:
+        os.environ.pop('HOME', None)
+    os.unlink(capture.name)"
 
 # ---- mcp_server.py tests ----
 

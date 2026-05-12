@@ -25,6 +25,34 @@ class InvokerConfig:
     prompt: str
 
 
+def load_claude_settings_env(base_env: dict[str, str] | None = None) -> dict[str, str]:
+    """Build child env, backfilling Claude Code settings env when sandbox hooks fail."""
+    child_env = dict(base_env or os.environ)
+    settings_env: dict[str, str] = {}
+
+    for path in (
+        Path.home() / ".claude" / "settings.json",
+        Path.home() / ".claude" / "settings.local.json",
+    ):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+
+        env = data.get("env")
+        if not isinstance(env, dict):
+            continue
+
+        for key, value in env.items():
+            if isinstance(key, str) and isinstance(value, (str, int, float, bool)):
+                settings_env[key] = str(value)
+
+    for key, value in settings_env.items():
+        child_env.setdefault(key, value)
+
+    return child_env
+
+
 def generate_mcp_config(mcp_mode: str, source_config_path: str | None) -> tuple[list[str], str | None]:
     if mcp_mode == "all":
         return ([], None)
@@ -112,6 +140,7 @@ def invoke_claude(config: InvokerConfig) -> subprocess.CompletedProcess[Any]:
         source_path = resolve_mcp_config_path(config.mcp_mode)
 
     mcp_args, mcp_config_path = generate_mcp_config(config.mcp_mode, source_path)
+    child_env = load_claude_settings_env()
     cleanup_files: list[str] = []
     if mcp_config_path and config.mcp_mode not in ("all", "none"):
         cleanup_files.append(mcp_config_path)
@@ -127,6 +156,7 @@ def invoke_claude(config: InvokerConfig) -> subprocess.CompletedProcess[Any]:
             return subprocess.run(
                 [*args, config.prompt],
                 capture_output=True,
+                env=child_env,
                 text=True,
             )
 
@@ -135,6 +165,7 @@ def invoke_claude(config: InvokerConfig) -> subprocess.CompletedProcess[Any]:
         return subprocess.run(
             [*args, config.prompt],
             capture_output=True,
+            env=child_env,
             text=True,
         )
     finally:
