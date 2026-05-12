@@ -133,7 +133,7 @@ Default MCP mode is `all`: Claude Code uses its normal project/user MCP configur
 "$(resolve_delegator)" --mcp sequential-thinking "$PROMPT"
 ```
 
-Supported modes are `all`, `none`, `jira`, `linear`, and `sequential-thinking`. `none` uses Claude Code's `--strict-mcp-config` with an empty MCP config. Specific server modes use `--strict-mcp-config` with a generated one-server config read from `.mcp.json`, or from `CLAUDE_DELEGATE_MCP_CONFIG_PATH` when set.
+Supported modes are `all`, `none`, `jira`, `linear`, and `sequential-thinking`. `none` uses Claude Code's `--strict-mcp-config --mcp-config` with an empty MCP config. Specific server modes use `--strict-mcp-config --mcp-config` with a generated one-server config read from `.mcp.json`, or from `CLAUDE_DELEGATE_MCP_CONFIG_PATH` when set.
 
 Built-in Claude Code file and shell tools are not MCP servers, so `--mcp none` still allows normal implementation work. It only suppresses project/user MCP server loading.
 

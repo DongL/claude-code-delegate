@@ -217,6 +217,8 @@ test_case_absent "default mcp all no strict config" "--strict-mcp-config" "test 
 
 test_case "--mcp none strict config" 0 "--strict-mcp-config" --mcp none "test prompt"
 
+test_case "--mcp none passes mcp-config" 0 "--mcp-config" --mcp none "test prompt"
+
 test_case "--mcp none empty config" 0 "strict-mcp-config" --mcp none "test prompt"
 
 cat > "$SANDBOX/mcp.json" <<'JSON'
@@ -234,6 +236,9 @@ CLAUDE_DELEGATE_MCP_CONFIG_PATH="$SANDBOX/mcp.json" \
 
 CLAUDE_DELEGATE_MCP_CONFIG_PATH="$SANDBOX/mcp.json" \
   test_case "--mcp jira passes generated mcp-config" 0 "--strict-mcp-config" --mcp jira "test prompt"
+
+CLAUDE_DELEGATE_MCP_CONFIG_PATH="$SANDBOX/mcp.json" \
+  test_case "--mcp jira passes mcp-config flag" 0 "--mcp-config" --mcp jira "test prompt"
 
 CLAUDE_DELEGATE_MCP_MODE="none" \
   test_case "env mcp mode none" 0 "--strict-mcp-config" "test prompt"
@@ -883,6 +888,16 @@ args, cfg = generate_mcp_config('none', None)
 print('mcp_none: {}'.format(args))"
 
 test_invoker_py \
+  "generate_mcp_config mode=none passes mcp-config" \
+  "--mcp-config" 0 \
+  "from invoker import generate_mcp_config
+args, cfg = generate_mcp_config('none', None)
+assert '--strict-mcp-config' in args
+assert '--mcp-config' in args
+assert args.index('--mcp-config') + 1 < len(args)
+print('mcp_none: {}'.format(args))"
+
+test_invoker_py \
   "generate_mcp_config mode=none empty servers" \
   "mcpServers" 0 \
   "from invoker import generate_mcp_config
@@ -904,6 +919,23 @@ os.unlink(f.name)
 print('{} cfg_path_exists'.format(args))
 if cfg_path:
     os.unlink(cfg_path)"
+
+test_invoker_py \
+  "generate_mcp_config mode=specific passes mcp-config" \
+  "--mcp-config" 0 \
+  "from invoker import generate_mcp_config
+mcp_json = json.dumps({'mcpServers': {'jira': {'command': 'npx', 'args': ['-y', 'jira-mcp']}}})
+f = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+f.write(mcp_json)
+f.close()
+try:
+    args, cfg_path = generate_mcp_config('jira', f.name)
+    assert '--strict-mcp-config' in args
+    assert '--mcp-config' in args
+    assert args.index('--mcp-config') + 1 < len(args)
+    print('mcp_jira: {}'.format(args))
+finally:
+    os.unlink(f.name)"
 
 test_invoker_py \
   "generate_mcp_config invalid specific server raises ValueError" \
@@ -982,6 +1014,26 @@ if '--disallowedTools' in result.args:
     print('HAS_DISALLOWED')
 else:
     print('NO_DISALLOWED')"
+
+test_invoker_py \
+  "invoke_claude mcp jira preserves prompt as final arg" \
+  "PROMPT_LAST" 0 \
+  "from invoker import InvokerConfig, invoke_claude
+mcp_json = json.dumps({'mcpServers': {'jira': {'command': 'node', 'args': ['jira.js']}}})
+f = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+f.write(mcp_json)
+f.close()
+os.environ['CLAUDE_DELEGATE_MCP_CONFIG_PATH'] = f.name
+try:
+    c = InvokerConfig(model='pro', effort='max', permission_mode='bypassPermissions', mcp_mode='jira', subagent_mode='off', heartbeat_seconds=0, output_mode='quiet', prompt='test prompt')
+    result = invoke_claude(c)
+    assert '--strict-mcp-config' in result.args
+    assert '--mcp-config' in result.args
+    assert result.args[-1] == 'test prompt'
+    print('PROMPT_LAST')
+finally:
+    os.environ.pop('CLAUDE_DELEGATE_MCP_CONFIG_PATH', None)
+    os.unlink(f.name)"
 
 test_invoker_py \
   "invoke_claude stream mode writes to stdout" \

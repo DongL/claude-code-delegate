@@ -13,7 +13,7 @@ Use this workflow when the user wants an orchestrator to own planning/review whi
 
 #### Plan Gate
 - [ ] Read enough local context to understand the affected area.
-- [ ] Show a concrete implementation plan to the user, including ownership boundaries and verification commands.
+- [ ] Show a concrete implementation plan to the user BEFORE invoking the wrapper. This is a hard gate: do not batch the wrapper invocation in the same tool call as the plan. The user must be able to read and object before execution starts. Include ownership boundaries and verification commands.
 - [ ] Confirm the plan does not broaden scope beyond what was asked. Scope creep is the most common violation — plan only what the user requested.
 
 #### Delegate Gate

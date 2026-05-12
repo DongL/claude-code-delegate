@@ -31,7 +31,7 @@ def generate_mcp_config(mcp_mode: str, source_config_path: str | None) -> tuple[
 
     if mcp_mode == "none":
         config_json = json.dumps({"mcpServers": {}})
-        return (["--strict-mcp-config", config_json], config_json)
+        return (["--strict-mcp-config", "--mcp-config", config_json], config_json)
 
     if source_config_path is None:
         raise ValueError(f"MCP mode '{mcp_mode}' requires a source config path")
@@ -52,7 +52,7 @@ def generate_mcp_config(mcp_mode: str, source_config_path: str | None) -> tuple[
             if k not in os.environ:
                 os.environ[k] = v
     config_json = json.dumps({"mcpServers": {mcp_mode: server_config}})
-    return (["--strict-mcp-config", config_json], None)
+    return (["--strict-mcp-config", "--mcp-config", config_json], None)
 
 
 def start_heartbeat(interval_seconds: int, model: str, effort: str, mcp_mode: str, output_mode: str) -> threading.Thread | None:
