@@ -1242,7 +1242,7 @@ finally:
 test_invoker_py \
   "invoke_claude uses isolated Claude config by default" \
   "ISOLATED_CHILD_OK" 0 \
-  "from invoker import InvokerConfig, invoke_claude
+  "from invoker import InvokerConfig, invoke_claude, CLAUDE_ENV_KEYS
 from pathlib import Path
 home = tempfile.mkdtemp()
 cwd = tempfile.mkdtemp()
@@ -1250,13 +1250,16 @@ old_home = os.environ.get('HOME')
 old_cwd = os.getcwd()
 capture = tempfile.NamedTemporaryFile(delete=False)
 capture.close()
+saved_anthropic_vars = {}
 try:
     os.environ['HOME'] = home
     os.chdir(cwd)
     os.environ['CLAUDE_DELEGATE_TEST_CAPTURE'] = capture.name
+    for key in CLAUDE_ENV_KEYS:
+        saved_anthropic_vars[key] = os.environ.pop(key, None)
     settings = Path(home) / '.claude' / 'settings.json'
     settings.parent.mkdir(parents=True)
-    settings.write_text(json.dumps({'env': {'ANTHROPIC_BASE_URL': 'https://example.invalid', 'ANTHROPIC_AUTH_TOKEN': 'secret'}}))
+    settings.write_text(json.dumps({'env': {'ANTHROPIC_BASE_URL': 'https://example.invalid', 'ANTHROPIC_AUTH_TOKEN': 'fake-token'}}))
     c = InvokerConfig(model='pro', effort='max', permission_mode='bypassPermissions', mcp_mode='all', subagent_mode='off', heartbeat_seconds=0, output_mode='quiet', prompt='test')
     invoke_claude(c)
     config_dir = (Path(cwd) / '.claude-delegate' / 'runtime' / 'claude-config').resolve()
@@ -1273,6 +1276,9 @@ finally:
         os.environ['HOME'] = old_home
     else:
         os.environ.pop('HOME', None)
+    for key, value in saved_anthropic_vars.items():
+        if value is not None:
+            os.environ[key] = value
     os.unlink(capture.name)"
 
 # ---- mcp_server.py tests ----
