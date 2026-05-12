@@ -40,6 +40,14 @@ class DelegationResult:
     classification: dict[str, Any]
     model: str
     effort: str
+    permission_mode: str = ""
+    mcp_mode: str = "all"
+    task_type: str = ""
+    context_budget: str = ""
+    prompt_mode: str = ""
+    prompt_template: str = ""
+    original_prompt_chars: int = 0
+    prepared_prompt_chars: int = 0
 
 
 def _resolve_auto(value: str, fallback: str) -> str:
@@ -96,7 +104,20 @@ def run_delegation_pipeline(
     )
 
     # 3. Build prepared prompt
-    final_prompt, _mode = build_prepared_prompt(prompt, classification, resolved_context)
+    final_prompt, prompt_mode = build_prepared_prompt(prompt, classification, resolved_context)
+
+    # Compute prompt metadata
+    original_prompt_chars = len(prompt)
+    prepared_prompt_chars = len(final_prompt)
+    if prompt_mode == "template":
+        prompt_template = classification.task_type
+    elif prompt_mode == "envelope":
+        prompt_template = "envelope"
+    else:
+        prompt_template = ""
+    prompt_reduction_pct = max(
+        0, int((1 - prepared_prompt_chars / max(original_prompt_chars, 1)) * 100)
+    )
 
     # 4. Build InvokerConfig
     heartbeat_seconds = 30
@@ -151,7 +172,17 @@ def run_delegation_pipeline(
             effort=final_effort,
             permission_mode=final_permission,
             mcp_mode=resolved_mcp,
+            task_class=classification.name,
+            task_type=classification.task_type,
+            context_budget=classification.context_budget,
+            prompt_mode=prompt_mode,
+            prompt_template=prompt_template,
+            original_prompt_chars=original_prompt_chars,
+            prepared_prompt_chars=prepared_prompt_chars,
+            prompt_reduction_pct=prompt_reduction_pct,
             usage=parsed.get("usage"),
+            total_cost_usd=parsed.get("cost_usd"),
+            terminal_reason=parsed.get("terminal_reason"),
             is_error=bool(parsed.get("is_error")),
         )
         append_profile_record(record, profile_log)
@@ -165,4 +196,12 @@ def run_delegation_pipeline(
         classification=_classification_to_dict(classification),
         model=model,
         effort=final_effort,
+        permission_mode=final_permission,
+        mcp_mode=resolved_mcp,
+        task_type=classification.task_type,
+        context_budget=classification.context_budget,
+        prompt_mode=prompt_mode,
+        prompt_template=prompt_template,
+        original_prompt_chars=original_prompt_chars,
+        prepared_prompt_chars=prepared_prompt_chars,
     )

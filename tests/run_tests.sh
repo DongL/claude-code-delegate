@@ -84,6 +84,31 @@ test_case_absent() {
   rm -f "$capture"
 }
 
+# test_runner_stdout name expected_stdout_substr [args...]
+# Like test_case but captures stdout instead of discarding it.
+test_runner_stdout() {
+  local name="$1" expected_stdout="$2"
+  shift 2
+  local stdout_file; stdout_file=$(mktemp "$SANDBOX/stdout.XXXX")
+  local capture; capture=$(mktemp "$SANDBOX/cap.XXXX")
+  set +e
+  CLAUDE_DELEGATE_TEST_CAPTURE="$capture" "$RUNNER" "$@" > "$stdout_file" 2>/dev/null
+  local got_exit=$?
+  set -e
+  if [ "$got_exit" -ne 0 ]; then
+    echo "  FAIL  $name (exit $got_exit, expected 0)"
+    failed=$((failed+1))
+  elif ! grep -qF -e "$expected_stdout" "$stdout_file"; then
+    echo "  FAIL  $name (stdout missing: $expected_stdout)"
+    echo "        stdout: $(tr '\n' '|' < "$stdout_file")"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+  rm -f "$stdout_file" "$capture"
+}
+
 # test_exit name expected_exit [args...]
 test_exit() {
   local name="$1" expected_exit="$2"
@@ -159,6 +184,19 @@ CLAUDE_DELEGATE_PERMISSION_MODE="bypassPermissions" \
 
 # Quiet mode (default) writes JSON to temp file, pipes through compact script
 test_case "quiet mode output-format json" 0 "--output-format json" "test prompt"
+
+# Quiet report metadata assertions (stdout capture)
+test_runner_stdout "quiet report shows permissionMode" "permissionMode: bypassPermissions" "test prompt"
+
+test_runner_stdout "quiet report shows mcpMode" "mcpMode: all" "test prompt"
+
+test_runner_stdout "quiet report shows Classification section" "Classification" "check how many rows are in pattern_data"
+
+test_runner_stdout "quiet report shows taskType" "taskType: read_only_scan" "check how many rows are in pattern_data"
+
+test_runner_stdout "quiet report shows Prompt section" "Prompt" "check how many rows are in pattern_data"
+
+test_runner_stdout "quiet report shows prompt mode" "mode: template" "check how many rows are in pattern_data"
 
 test_case "tiny task routes to flash" 0 "--model deepseek-v4-flash[1m]" "check how many rows are in pattern_data"
 
@@ -1841,6 +1879,46 @@ assert 'timestamp' in record
 assert record['model'] == result.model
 os.unlink(log_path)
 print('profile_log_ok')"
+
+test_pipeline_py \
+  "DelegationResult carries resolved metadata fields" \
+  "metadata_ok" 0 \
+  "from pipeline import run_delegation_pipeline
+result = run_delegation_pipeline('fix the README typo', output_mode='quiet')
+assert result.permission_mode == 'bypassPermissions'
+assert result.mcp_mode == 'all'
+assert result.task_type == 'code_edit'
+assert result.context_budget == 'standard'
+assert result.prompt_mode == 'template'
+assert result.prompt_template == 'code_edit'
+assert result.original_prompt_chars > 0
+assert result.prepared_prompt_chars > 0
+assert result.original_prompt_chars <= result.prepared_prompt_chars
+print('metadata_ok')"
+
+test_pipeline_py \
+  "profile JSONL contains task/context/prompt metadata fields" \
+  "profile_metadata_ok" 0 \
+  "from pipeline import run_delegation_pipeline
+import os, json, tempfile
+log_path = tempfile.mktemp(suffix='.jsonl')
+os.environ['CLAUDE_DELEGATE_PROFILE_LOG'] = log_path
+result = run_delegation_pipeline('architecture refactor plan', output_mode='quiet')
+with open(log_path) as f:
+    lines = [l for l in f if l.strip()]
+assert len(lines) == 1
+record = json.loads(lines[0])
+assert record['class'] == 'large'
+assert record['taskType'] == 'architecture_review'
+assert record['contextBudget'] == 'expanded'
+assert record['promptMode'] == 'template'
+assert record['promptTemplate'] == 'architecture_review'
+assert record['originalPromptChars'] > 0
+assert record['preparedPromptChars'] > 0
+assert record['totalCostUsd'] is not None
+assert record['terminalReason'] is not None
+os.unlink(log_path)
+print('profile_metadata_ok')"
 
 # ---- profile_logger.py tests ----
 
