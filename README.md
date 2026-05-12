@@ -199,6 +199,70 @@ Env var equivalents and full details: [docs/shell-wrapper-reference.md](docs/she
 | `docs/shell-wrapper-reference.md` | Full CLI flag/env-var reference |
 | `docs/jira-workflow.md` | Jira-specific delegation conventions |
 
+## Quality Gates
+
+CI/CD quality gates enforce merge and release confidence. The policy is defined in ADR 0003 (`docs/adr/0003-ci-cd-quality-gates.md`).
+
+### Gate Tiers
+
+| Tier | Trigger | Scope | External Services |
+|------|---------|-------|-------------------|
+| **Default CI** | Every PR and push to main | `bash scripts/quality-gate.sh` via `.github/workflows/quality-gate.yml` | None — fake claude, mock MCP |
+| **Smoke** | Manual, pre-release | Human-supervised checks against live Jira, GitHub, Claude provider | Real tokens required |
+| **Release** | Before tagging a release | `bash scripts/release-gate-report.sh` — aggregates default CI + smoke results | None for report; smoke results are inputs |
+
+### Local Parity
+
+Run the same command CI runs:
+
+```bash
+bash scripts/quality-gate.sh
+```
+
+This invokes `bash tests/run_tests.sh` by default. Override the test command for experimentation:
+
+```bash
+CLAUDE_DELEGATE_QUALITY_GATE_TEST_COMMAND="bash my-tests.sh" bash scripts/quality-gate.sh
+```
+
+CI runs the identical command — no divergence between developer machine and CI environment.
+
+### CI Behavior
+
+- **Trigger:** every PR against `main` and every push to `main`
+- **Workflow:** `.github/workflows/quality-gate.yml`
+- **Runner:** `ubuntu-latest` with only `actions/checkout@v4`
+- **Heartbeat:** disabled (`CLAUDE_DELEGATE_HEARTBEAT_SECONDS=0`) for clean CI output
+- **Result:** non-zero exit = gate failure = merge blocked
+
+### Release Confidence Reporting
+
+Generate a structured report before cutting a release:
+
+```bash
+bash scripts/release-gate-report.sh
+```
+
+The report records: gate status (PASS/FAIL), commit hash, tag, tests run, and residual risk. A failed gate prints `RELEASE BLOCKED` and exits non-zero.
+
+### Sandbox and Isolation Assumptions
+
+- **No real tokens.** Default CI requires no `ANTHROPIC_API_KEY`, `JIRA_API_TOKEN`, or `GITHUB_TOKEN`.
+- **Fake claude on PATH.** The test suite prepends a fake `claude` script that records invocation arguments and returns valid JSON.
+- **Mock MCP servers.** MCP integration tests use mock servers, not live Jira/Linear/GitHub.
+- **Isolated Claude runtime.** The pipeline writes a minimal `settings.json` to `.claude-delegate/runtime/claude-config/` and sets `CLAUDE_CONFIG_DIR` to point there. No `~/.claude` coupling, no enabled plugins, no hooks.
+- **No subagents in CI.** Subagents are disabled by default (`--disallowedTools Task Agent`).
+
+### External-System Caveats
+
+Real external-system integration is **out of default CI**:
+
+- **Claude provider:** real model invocation is not tested in CI. The fake `claude` script validates the invocation path (args, env vars, flags) but not the provider response.
+- **Jira:** issue transitions and comments are not performed in CI. Jira MCP operations use the `--mcp jira` mode with mock servers for CI tests.
+- **GitHub release publishing:** not tested in CI. Release reports are local artifacts.
+
+Smoke tests against live external systems are reserved for manual pre-release checks. A future secret-backed CI environment for live smoke tests requires a separate decision (see ADR 0003).
+
 ## Profiling
 
 **Prerequisite**: set `CLAUDE_DELEGATE_PROFILE_LOG` to enable recording. Each delegation appends one JSONL record:
