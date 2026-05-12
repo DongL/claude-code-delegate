@@ -2193,6 +2193,219 @@ assert r['preparedPromptChars'] == 0
 assert r['promptReductionPct'] == 0
 print('bpr_defaults_ok')"
 
+# ---- quality-gate.sh tests ----
+
+echo ""
+echo "=== quality-gate.sh ==="
+
+QUALITY_GATE="$SCRIPT_DIR/../scripts/quality-gate.sh"
+
+# Create fake test runners for quality-gate testing
+cat > "$SANDBOX/fake-pass" <<'FAKE'
+#!/usr/bin/env bash
+echo "fake-pass: all tests passed"
+exit 0
+FAKE
+chmod +x "$SANDBOX/fake-pass"
+
+cat > "$SANDBOX/fake-fail" <<'FAKE'
+#!/usr/bin/env bash
+echo "fake-fail: tests failed"
+exit 1
+FAKE
+chmod +x "$SANDBOX/fake-fail"
+
+# test_qg name expected_exit expected_stdout test_cmd [extra_env]
+test_qg() {
+  local name="$1" expected_exit="$2" expected_stdout="$3" test_cmd="$4"
+  local stdout_file; stdout_file=$(mktemp "$SANDBOX/qg_stdout.XXXX")
+  set +e
+  CLAUDE_DELEGATE_QUALITY_GATE_TEST_COMMAND="$test_cmd" "$QUALITY_GATE" > "$stdout_file" 2>/dev/null
+  local got_exit=$?
+  set -e
+  if [ "$got_exit" -ne "$expected_exit" ]; then
+    echo "  FAIL  $name (exit $got_exit, expected $expected_exit)"
+    echo "        stdout: $(tr '\n' '|' < "$stdout_file")"
+    failed=$((failed+1))
+  elif [ -n "$expected_stdout" ] && ! grep -qF -e "$expected_stdout" "$stdout_file"; then
+    echo "  FAIL  $name (stdout missing: $expected_stdout)"
+    echo "        stdout: $(tr '\n' '|' < "$stdout_file")"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+  rm -f "$stdout_file"
+}
+
+[ -f "$QUALITY_GATE" ] || echo "  FAIL  quality-gate.sh not found (expected scripts/quality-gate.sh)"
+
+test_qg "quality gate exits 0 on passing runner" 0 "Quality Gate: claude-code-delegate" "$SANDBOX/fake-pass"
+
+test_qg "quality gate exit 0 shows runner identity" 0 "Test Runner: $SANDBOX/fake-pass" "$SANDBOX/fake-pass"
+
+test_qg "quality gate exits non-zero on failing runner" 1 "fake-fail: tests failed" "$SANDBOX/fake-fail"
+
+test_qg "quality gate exit non-zero shows runner identity" 1 "Test Runner: $SANDBOX/fake-fail" "$SANDBOX/fake-fail"
+
+# ---- CI workflow tests (CCDM-19) ----
+
+echo ""
+echo "=== CI workflow ==="
+
+CI_WORKFLOW="$SCRIPT_DIR/../.github/workflows/quality-gate.yml"
+
+if [ -f "$CI_WORKFLOW" ]; then
+  echo "  PASS  .github/workflows/quality-gate.yml exists"
+  passed=$((passed+1))
+else
+  echo "  FAIL  .github/workflows/quality-gate.yml not found"
+  failed=$((failed+1))
+fi
+
+if [ -f "$CI_WORKFLOW" ]; then
+  if grep -qF "pull_request" "$CI_WORKFLOW" && grep -qF "push:" "$CI_WORKFLOW"; then
+    echo "  PASS  CI workflow triggers on pull_request and push"
+    passed=$((passed+1))
+  else
+    echo "  FAIL  CI workflow missing pull_request or push trigger"
+    failed=$((failed+1))
+  fi
+
+  if grep -qF "quality-gate.sh" "$CI_WORKFLOW"; then
+    echo "  PASS  CI workflow invokes quality-gate.sh"
+    passed=$((passed+1))
+  else
+    echo "  FAIL  CI workflow does not invoke quality-gate.sh"
+    failed=$((failed+1))
+  fi
+
+  if grep -qF "branches:" "$CI_WORKFLOW" && grep -qF "main" "$CI_WORKFLOW"; then
+    echo "  PASS  CI workflow targets main branch"
+    passed=$((passed+1))
+  else
+    echo "  FAIL  CI workflow does not target main branch"
+    failed=$((failed+1))
+  fi
+
+  if grep -qF "CLAUDE_DELEGATE_HEARTBEAT_SECONDS" "$CI_WORKFLOW" && grep -qF "0" "$CI_WORKFLOW"; then
+    echo "  PASS  CI workflow disables heartbeat"
+    passed=$((passed+1))
+  else
+    echo "  FAIL  CI workflow does not disable heartbeat"
+    failed=$((failed+1))
+  fi
+fi
+
+# ---- release-gate-report.sh tests (CCDM-21) ----
+
+echo ""
+echo "=== release-gate-report.sh ==="
+
+RELEASE_GATE_REPORT="$SCRIPT_DIR/../scripts/release-gate-report.sh"
+
+# test_rgr name expected_exit expected_stdout test_cmd [extra_env]
+test_rgr() {
+  local name="$1" expected_exit="$2" expected_stdout="$3" test_cmd="$4"
+  local stdout_file; stdout_file=$(mktemp "$SANDBOX/rgr_stdout.XXXX")
+  set +e
+  CLAUDE_DELEGATE_QUALITY_GATE_TEST_COMMAND="$test_cmd" \
+    CLAUDE_DELEGATE_RELEASE_TAG="v1.0.0-test" \
+    "$RELEASE_GATE_REPORT" > "$stdout_file" 2>/dev/null
+  local got_exit=$?
+  set -e
+  if [ "$got_exit" -ne "$expected_exit" ]; then
+    echo "  FAIL  $name (exit $got_exit, expected $expected_exit)"
+    echo "        stdout: $(tr '\n' '|' < "$stdout_file")"
+    failed=$((failed+1))
+  elif [ -n "$expected_stdout" ] && ! grep -qF -e "$expected_stdout" "$stdout_file"; then
+    echo "  FAIL  $name (stdout missing: $expected_stdout)"
+    echo "        stdout: $(tr '\n' '|' < "$stdout_file")"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+  rm -f "$stdout_file"
+}
+
+if [ -f "$RELEASE_GATE_REPORT" ]; then
+  echo "  PASS  release-gate-report.sh exists"
+  passed=$((passed+1))
+else
+  echo "  FAIL  release-gate-report.sh not found"
+  failed=$((failed+1))
+fi
+
+if [ -f "$RELEASE_GATE_REPORT" ]; then
+  test_rgr "release report success path shows PASS" 0 "Gate Status: PASS" "$SANDBOX/fake-pass"
+  test_rgr "release report success path shows commit" 0 "Commit:" "$SANDBOX/fake-pass"
+  test_rgr "release report success path shows tag" 0 "Tag: v1.0.0-test" "$SANDBOX/fake-pass"
+  test_rgr "release report success path shows residual risk" 0 "Residual Risk:" "$SANDBOX/fake-pass"
+  test_rgr "release report failure path shows FAIL" 1 "Gate Status: FAIL" "$SANDBOX/fake-fail"
+  test_rgr "release report failure path blocks release" 1 "BLOCKED" "$SANDBOX/fake-fail"
+  test_rgr "release report header present" 0 "Release Quality Gate Report" "$SANDBOX/fake-pass"
+fi
+
+# ---- quality gate docs tests (CCDM-22) ----
+
+echo ""
+echo "=== quality gate docs ==="
+
+README="$SCRIPT_DIR/../README.md"
+SKILL="$SCRIPT_DIR/../SKILL.md"
+
+# test_doc name file expected_substr
+test_doc() {
+  local name="$1" file="$2" expected="$3"
+  if grep -qF -e "$expected" "$file"; then
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  else
+    echo "  FAIL  $name (missing: $expected in $(basename "$file"))"
+    failed=$((failed+1))
+  fi
+}
+
+# Check README has quality gate section
+test_doc "README has quality gate section" "$README" "Quality Gate"
+
+# Check README references the local command
+test_doc "README references quality-gate.sh" "$README" "quality-gate.sh"
+
+# Check README references CI workflow
+test_doc "README references CI workflow" "$README" "github/workflows/quality-gate.yml"
+
+# Check external-system caveats are documented
+test_doc "README documents external-system caveats" "$README" "external-system"
+
+# Check ADR 0003 is referenced
+test_doc "README references ADR 0003" "$README" "ADR 0003"
+
+# Check isolated runtime assumption is documented
+test_doc "README documents isolated Claude runtime" "$README" "Isolated Claude runtime"
+
+# ---- ADR 0003 status test (CCDM-23) ----
+
+echo ""
+echo "=== ADR 0003 ==="
+
+ADR0003="$SCRIPT_DIR/../docs/adr/0003-ci-cd-quality-gates.md"
+
+# ADR status must be "Accepted" on a line that starts with "## Status" or appears right after it.
+# We check for the pattern: "## Status" followed by "Accepted" within a few lines.
+if grep -A1 "^## Status$" "$ADR0003" | grep -qF "Accepted"; then
+  echo "  PASS  ADR 0003 status is Accepted"
+  passed=$((passed+1))
+else
+  echo "  FAIL  ADR 0003 status is not Accepted (currently shows Proposed)"
+  failed=$((failed+1))
+fi
+
+test_doc "ADR 0003 external-system strategy is explicit" "$ADR0003" "no-live-service"
+
+test_doc "ADR 0003 decision is documented" "$ADR0003" "Decision"
+
 # ---- summary ----
 
 echo ""
