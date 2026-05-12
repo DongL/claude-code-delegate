@@ -14,9 +14,12 @@ Use this workflow when the user wants an orchestrator to own planning/review whi
 #### Plan Gate
 - [ ] Read enough local context to understand the affected area.
 - [ ] Show a concrete implementation plan to the user BEFORE invoking the wrapper. This is a hard gate: do not batch the wrapper invocation in the same tool call as the plan. The user must be able to read and object before execution starts. Include ownership boundaries and verification commands.
+- [ ] Present the plan as a normal assistant message in the conversation. Do not satisfy this gate by printing the plan through a shell command, tool output, log line, or hidden artifact.
 - [ ] Confirm the plan does not broaden scope beyond what was asked. Scope creep is the most common violation — plan only what the user requested.
 
 #### Delegate Gate
+- [ ] Show the exact orchestrator-authored prompt to the user BEFORE invocation. This is a hard gate: the user must see what will be sent to Claude Code before execution starts. Present the prompt as a normal assistant message — not through a shell command, tool output, or hidden artifact.
+- [ ] If the prompt contains secrets, private user data, or excessive copied context, show a redacted version and state what was redacted. Never redact material scope, ownership boundaries, prohibited actions, or verification commands.
 - [ ] Invoke only through `run-claude-code.sh` via the resolver function.
 - [ ] Default to quiet/compact mode (`--quiet`). Streaming is a common violation — reserve `--stream` for wrapper/API/permission diagnosis only. Before re-streaming, check stderr heartbeat — if alive, executor is running; no need to restart.
 - [ ] The pipeline auto-classifies model tier and effort from the prompt. If the orchestrator knows the task is simpler or harder than keyword matching suggests, override with `--pro` / `--flash` / `--effort`. Prefer explicit overrides for non-trivial tasks.

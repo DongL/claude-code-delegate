@@ -44,12 +44,37 @@ def main() -> int:
     )
 
     # Print compact report (same format as compact-claude-stream.py main())
-    if result.model or result.effort:
+    if result.model or result.effort or result.permission_mode or result.mcp_mode:
         print("Claude Code")
         if result.model:
             print(f"- model: {result.model}")
         if result.effort:
             print(f"- effort: {result.effort}")
+        if result.permission_mode:
+            print(f"- permissionMode: {result.permission_mode}")
+        if result.mcp_mode:
+            print(f"- mcpMode: {result.mcp_mode}")
+        print()
+
+    class_name = result.classification.get("name", "")
+    if class_name or result.task_type or result.context_budget:
+        print("Classification")
+        if class_name:
+            print(f"- class: {class_name}")
+        if result.task_type:
+            print(f"- taskType: {result.task_type}")
+        if result.context_budget:
+            print(f"- contextBudget: {result.context_budget}")
+        print()
+
+    if result.prompt_mode or result.prompt_template or result.original_prompt_chars or result.prepared_prompt_chars:
+        print("Prompt")
+        if result.prompt_mode:
+            print(f"- mode: {result.prompt_mode}")
+        if result.prompt_template:
+            print(f"- template: {result.prompt_template}")
+        if result.original_prompt_chars or result.prepared_prompt_chars:
+            print(f"- originalChars: {result.original_prompt_chars}, preparedChars: {result.prepared_prompt_chars}")
         print()
 
     print("Result")
