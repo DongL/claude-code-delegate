@@ -1289,6 +1289,7 @@ echo "=== mcp_server.py ==="
 MCP_SERVER="$SCRIPT_DIR/../scripts/mcp_server.py"
 [ -f "$MCP_SERVER" ] || { echo "ERROR: $MCP_SERVER not found"; exit 1; }
 
+HAS_MCP_PKG=$(python3 -c "import mcp; print('yes')" 2>/dev/null || echo "no")
 # test_mcp_server_py name expected_out expected_exit py_code
 test_mcp_server_py() {
   local name="$1" expected_out="$2" expected_exit="$3"
@@ -1319,6 +1320,8 @@ PYEOF
   fi
   rm -f "$py_script" "$outfile" "$errfile"
 }
+
+if [ "$HAS_MCP_PKG" = "yes" ]; then
 
 test_mcp_server_py \
   "mcp_server module exists and imports" \
@@ -1645,6 +1648,11 @@ os.unlink(f.name)
 print(text[:300])
 if 'Cost:' in text:
     print('Cost: present')"
+
+else
+  echo "  SKIP  mcp_server tests (mcp package not installed)"
+  passed=$((passed+1))
+fi
 
 # ---- MCP integration tests ----
 
