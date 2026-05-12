@@ -1242,7 +1242,7 @@ finally:
 test_invoker_py \
   "invoke_claude uses isolated Claude config by default" \
   "ISOLATED_CHILD_OK" 0 \
-  "from invoker import InvokerConfig, invoke_claude
+  "from invoker import InvokerConfig, invoke_claude, CLAUDE_ENV_KEYS
 from pathlib import Path
 home = tempfile.mkdtemp()
 cwd = tempfile.mkdtemp()
@@ -1250,13 +1250,16 @@ old_home = os.environ.get('HOME')
 old_cwd = os.getcwd()
 capture = tempfile.NamedTemporaryFile(delete=False)
 capture.close()
+saved_anthropic_vars = {}
 try:
     os.environ['HOME'] = home
     os.chdir(cwd)
     os.environ['CLAUDE_DELEGATE_TEST_CAPTURE'] = capture.name
+    for key in CLAUDE_ENV_KEYS:
+        saved_anthropic_vars[key] = os.environ.pop(key, None)
     settings = Path(home) / '.claude' / 'settings.json'
     settings.parent.mkdir(parents=True)
-    settings.write_text(json.dumps({'env': {'ANTHROPIC_BASE_URL': 'https://example.invalid', 'ANTHROPIC_AUTH_TOKEN': 'secret'}}))
+    settings.write_text(json.dumps({'env': {'ANTHROPIC_BASE_URL': 'https://example.invalid', 'ANTHROPIC_AUTH_TOKEN': 'fake-token'}}))
     c = InvokerConfig(model='pro', effort='max', permission_mode='bypassPermissions', mcp_mode='all', subagent_mode='off', heartbeat_seconds=0, output_mode='quiet', prompt='test')
     invoke_claude(c)
     config_dir = (Path(cwd) / '.claude-delegate' / 'runtime' / 'claude-config').resolve()
@@ -1273,6 +1276,9 @@ finally:
         os.environ['HOME'] = old_home
     else:
         os.environ.pop('HOME', None)
+    for key, value in saved_anthropic_vars.items():
+        if value is not None:
+            os.environ[key] = value
     os.unlink(capture.name)"
 
 # ---- mcp_server.py tests ----
@@ -1283,6 +1289,7 @@ echo "=== mcp_server.py ==="
 MCP_SERVER="$SCRIPT_DIR/../scripts/mcp_server.py"
 [ -f "$MCP_SERVER" ] || { echo "ERROR: $MCP_SERVER not found"; exit 1; }
 
+HAS_MCP_PKG=$(python3 -c "import mcp; print('yes')" 2>/dev/null || echo "no")
 # test_mcp_server_py name expected_out expected_exit py_code
 test_mcp_server_py() {
   local name="$1" expected_out="$2" expected_exit="$3"
@@ -1313,6 +1320,8 @@ PYEOF
   fi
   rm -f "$py_script" "$outfile" "$errfile"
 }
+
+if [ "$HAS_MCP_PKG" = "yes" ]; then
 
 test_mcp_server_py \
   "mcp_server module exists and imports" \
@@ -1639,6 +1648,11 @@ os.unlink(f.name)
 print(text[:300])
 if 'Cost:' in text:
     print('Cost: present')"
+
+else
+  echo "  SKIP  mcp_server tests (mcp package not installed)"
+  passed=$((passed+1))
+fi
 
 # ---- MCP integration tests ----
 

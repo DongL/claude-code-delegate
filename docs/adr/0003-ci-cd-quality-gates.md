@@ -3,7 +3,6 @@
 The claude-code-delegate project has a shell test suite (`bash tests/run_tests.sh`) that passes locally but no automated CI enforcement. Without formalized CI/CD quality gates, every merge relies on manual discipline — the author remembering to run tests, check isolation assumptions, and validate that the delegation pipeline works across environments. This ADR establishes CI/CD quality gates as the merge/release confidence boundary: automated, deterministic checks that run on every PR and main-branch push.
 
 ## Status
-
 Accepted (2026-05-12)
 
 ## Considered Options
