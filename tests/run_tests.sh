@@ -23,6 +23,7 @@ echo "args:$*" >> "${CLAUDE_DELEGATE_TEST_CAPTURE:-/dev/null}"
 echo "MAX_THINKING_TOKENS:${MAX_THINKING_TOKENS:-}" >> "${CLAUDE_DELEGATE_TEST_CAPTURE:-/dev/null}"
 echo "ANTHROPIC_BASE_URL:${ANTHROPIC_BASE_URL:-}" >> "${CLAUDE_DELEGATE_TEST_CAPTURE:-/dev/null}"
 echo "ANTHROPIC_AUTH_TOKEN:${ANTHROPIC_AUTH_TOKEN:-}" >> "${CLAUDE_DELEGATE_TEST_CAPTURE:-/dev/null}"
+echo "CLAUDE_CONFIG_DIR:${CLAUDE_CONFIG_DIR:-}" >> "${CLAUDE_DELEGATE_TEST_CAPTURE:-/dev/null}"
 cat <<'JSONEOF'
 {"type":"result","result":"done","usage":{"input_tokens":5,"output_tokens":10}}
 JSONEOF
@@ -1080,6 +1081,43 @@ finally:
         os.environ.pop('HOME', None)"
 
 test_invoker_py \
+  "prepare_isolated_claude_config writes minimal settings" \
+  "isolated_settings_ok" 0 \
+  "from invoker import prepare_isolated_claude_config
+from pathlib import Path
+cwd = tempfile.mkdtemp()
+old_cwd = os.getcwd()
+try:
+    os.chdir(cwd)
+    env = prepare_isolated_claude_config({
+        'PATH': os.environ['PATH'],
+        'ANTHROPIC_BASE_URL': 'https://example.invalid',
+        'ANTHROPIC_AUTH_TOKEN': 'secret',
+        'ANTHROPIC_MODEL': 'model-x',
+    })
+    config_dir = Path(env['CLAUDE_CONFIG_DIR'])
+    assert config_dir == (Path(cwd) / '.claude-delegate' / 'runtime' / 'claude-config').resolve()
+    settings = json.loads((config_dir / 'settings.json').read_text())
+    assert settings['env']['ANTHROPIC_BASE_URL'] == 'https://example.invalid'
+    assert settings['env']['ANTHROPIC_AUTH_TOKEN'] == 'secret'
+    assert settings['env']['ANTHROPIC_MODEL'] == 'model-x'
+    assert 'enabledPlugins' not in settings
+    assert 'hooks' not in settings
+    print('isolated_settings_ok')
+finally:
+    os.chdir(old_cwd)"
+
+test_invoker_py \
+  "prepare_isolated_claude_config can be disabled" \
+  "isolated_disabled_ok" 0 \
+  "from invoker import prepare_isolated_claude_config
+env = {'PATH': os.environ['PATH'], 'CLAUDE_DELEGATE_ISOLATED_CONFIG': '0'}
+updated = prepare_isolated_claude_config(env)
+assert updated is env
+assert 'CLAUDE_CONFIG_DIR' not in updated
+print('isolated_disabled_ok')"
+
+test_invoker_py \
   "invoke_claude with fake claude returns result" \
   "invoke_claude OK" 0 \
   "from invoker import InvokerConfig, invoke_claude
@@ -1195,6 +1233,42 @@ finally:
         os.environ['ANTHROPIC_BASE_URL'] = saved_base_url
     if saved_auth_token is not None:
         os.environ['ANTHROPIC_AUTH_TOKEN'] = saved_auth_token
+    if old_home is not None:
+        os.environ['HOME'] = old_home
+    else:
+        os.environ.pop('HOME', None)
+    os.unlink(capture.name)"
+
+test_invoker_py \
+  "invoke_claude uses isolated Claude config by default" \
+  "ISOLATED_CHILD_OK" 0 \
+  "from invoker import InvokerConfig, invoke_claude
+from pathlib import Path
+home = tempfile.mkdtemp()
+cwd = tempfile.mkdtemp()
+old_home = os.environ.get('HOME')
+old_cwd = os.getcwd()
+capture = tempfile.NamedTemporaryFile(delete=False)
+capture.close()
+try:
+    os.environ['HOME'] = home
+    os.chdir(cwd)
+    os.environ['CLAUDE_DELEGATE_TEST_CAPTURE'] = capture.name
+    settings = Path(home) / '.claude' / 'settings.json'
+    settings.parent.mkdir(parents=True)
+    settings.write_text(json.dumps({'env': {'ANTHROPIC_BASE_URL': 'https://example.invalid', 'ANTHROPIC_AUTH_TOKEN': 'secret'}}))
+    c = InvokerConfig(model='pro', effort='max', permission_mode='bypassPermissions', mcp_mode='all', subagent_mode='off', heartbeat_seconds=0, output_mode='quiet', prompt='test')
+    invoke_claude(c)
+    config_dir = (Path(cwd) / '.claude-delegate' / 'runtime' / 'claude-config').resolve()
+    captured = Path(capture.name).read_text()
+    assert f'CLAUDE_CONFIG_DIR:{config_dir}' in captured
+    runtime_settings = json.loads((config_dir / 'settings.json').read_text())
+    assert runtime_settings['env']['ANTHROPIC_BASE_URL'] == 'https://example.invalid'
+    assert 'enabledPlugins' not in runtime_settings
+    print('ISOLATED_CHILD_OK')
+finally:
+    os.environ.pop('CLAUDE_DELEGATE_TEST_CAPTURE', None)
+    os.chdir(old_cwd)
     if old_home is not None:
         os.environ['HOME'] = old_home
     else:

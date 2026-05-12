@@ -13,6 +13,16 @@ from pathlib import Path
 from typing import Any
 
 
+CLAUDE_ENV_KEYS = (
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_MODEL",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+)
+
+
 @dataclass
 class InvokerConfig:
     model: str
@@ -51,6 +61,41 @@ def load_claude_settings_env(base_env: dict[str, str] | None = None) -> dict[str
         child_env.setdefault(key, value)
 
     return child_env
+
+
+def isolated_config_enabled(env: dict[str, str] | None = None) -> bool:
+    value = (env or os.environ).get("CLAUDE_DELEGATE_ISOLATED_CONFIG", "1")
+    return value.lower() not in ("0", "false", "no", "off")
+
+
+def prepare_isolated_claude_config(child_env: dict[str, str]) -> dict[str, str]:
+    """Point Claude Code at a workspace-writable minimal config directory."""
+    if not isolated_config_enabled(child_env):
+        return child_env
+
+    runtime_root = Path(
+        child_env.get(
+            "CLAUDE_DELEGATE_RUNTIME_DIR",
+            str(Path.cwd() / ".claude-delegate" / "runtime"),
+        )
+    )
+    config_dir = runtime_root / "claude-config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+
+    settings_env = {
+        key: child_env[key]
+        for key in CLAUDE_ENV_KEYS
+        if child_env.get(key)
+    }
+    settings = {"env": settings_env}
+    (config_dir / "settings.json").write_text(
+        json.dumps(settings, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    updated_env = dict(child_env)
+    updated_env["CLAUDE_CONFIG_DIR"] = str(config_dir)
+    return updated_env
 
 
 def generate_mcp_config(mcp_mode: str, source_config_path: str | None) -> tuple[list[str], str | None]:
@@ -140,7 +185,7 @@ def invoke_claude(config: InvokerConfig) -> subprocess.CompletedProcess[Any]:
         source_path = resolve_mcp_config_path(config.mcp_mode)
 
     mcp_args, mcp_config_path = generate_mcp_config(config.mcp_mode, source_path)
-    child_env = load_claude_settings_env()
+    child_env = prepare_isolated_claude_config(load_claude_settings_env())
     cleanup_files: list[str] = []
     if mcp_config_path and config.mcp_mode not in ("all", "none"):
         cleanup_files.append(mcp_config_path)
