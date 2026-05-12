@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "run-claude-code\\.sh",
+        "command": "echo '[GATE] Did you show the implementation plan to the user? Plan must be shown BEFORE delegating.' >&2"
+      }
+    ]
+  }
+}

@@ -55,6 +55,28 @@ def generate_mcp_config(mcp_mode: str, source_config_path: str | None) -> tuple[
     return (["--strict-mcp-config", "--mcp-config", config_json], None)
 
 
+def resolve_mcp_config_path(mcp_mode: str) -> str | None:
+    explicit = os.environ.get("CLAUDE_DELEGATE_MCP_CONFIG_PATH")
+    if explicit:
+        return explicit
+
+    candidates = [
+        Path(".mcp.json"),
+        Path.home() / ".claude" / "mcp.json",
+        Path.home() / ".codex" / "mcp.json",
+        Path(__file__).resolve().parents[1] / ".mcp.json",
+    ]
+
+    for candidate in candidates:
+        try:
+            config = json.loads(candidate.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if mcp_mode in (config.get("mcpServers") or {}):
+            return str(candidate)
+    return None
+
+
 def start_heartbeat(interval_seconds: int, model: str, effort: str, mcp_mode: str, output_mode: str) -> threading.Thread | None:
     if interval_seconds == 0:
         return None
@@ -87,8 +109,7 @@ def invoke_claude(config: InvokerConfig) -> subprocess.CompletedProcess[Any]:
 
     source_path: str | None = None
     if config.mcp_mode not in ("all", "none"):
-        env_path = os.environ.get("CLAUDE_DELEGATE_MCP_CONFIG_PATH")
-        source_path = env_path or str(Path(".mcp.json"))
+        source_path = resolve_mcp_config_path(config.mcp_mode)
 
     mcp_args, mcp_config_path = generate_mcp_config(config.mcp_mode, source_path)
     cleanup_files: list[str] = []

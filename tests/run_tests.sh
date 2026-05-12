@@ -954,6 +954,35 @@ finally:
     os.unlink(f.name)"
 
 test_invoker_py \
+  "resolve_mcp_config_path skips cwd config missing requested server" \
+  "resolved_user_config" 0 \
+  "from invoker import resolve_mcp_config_path
+from pathlib import Path
+home = tempfile.mkdtemp()
+cwd = tempfile.mkdtemp()
+old_home = os.environ.get('HOME')
+old_cwd = os.getcwd()
+old_explicit = os.environ.pop('CLAUDE_DELEGATE_MCP_CONFIG_PATH', None)
+try:
+    os.environ['HOME'] = home
+    os.chdir(cwd)
+    Path('.mcp.json').write_text(json.dumps({'mcpServers': {'linear': {'command': 'linear'}}}))
+    user_config = Path(home) / '.claude' / 'mcp.json'
+    user_config.parent.mkdir(parents=True)
+    user_config.write_text(json.dumps({'mcpServers': {'jira': {'command': 'jira'}}}))
+    resolved = resolve_mcp_config_path('jira')
+    assert resolved == str(user_config), resolved
+    print('resolved_user_config')
+finally:
+    os.chdir(old_cwd)
+    if old_home is not None:
+        os.environ['HOME'] = old_home
+    else:
+        os.environ.pop('HOME', None)
+    if old_explicit is not None:
+        os.environ['CLAUDE_DELEGATE_MCP_CONFIG_PATH'] = old_explicit"
+
+test_invoker_py \
   "start_heartbeat zero interval returns None" \
   "heartbeat=None" 0 \
   "from invoker import start_heartbeat
