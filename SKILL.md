@@ -31,6 +31,15 @@ Use this workflow when the user wants an orchestrator to own planning/review whi
 - [ ] If Claude Code appears stuck, re-run with `--stream` to diagnose — do not take over locally.
 - [ ] If Claude Code produces a wrong or incomplete result, stop and re-delegate the correction — do not patch locally.
 
+#### Async Delegation Gate (Lease + Single-Flight)
+
+The `--start` / `--poll` modes enforce single-flight lease semantics to prevent duplicate delegations.
+
+- [ ] A running delegation job owns an execution lease. Do not start a second delegation while one is running.
+- [ ] Use `--start` to launch in background; use `--poll <job_id>` to check status.
+- [ ] Do not treat a long-running invocation as evidence of stuckness by itself. Poll the heartbeat/log-tail first.
+- [ ] If `--start` returns `"status": "lease_held"`, the orchestrator must wait for that job to complete. No retry, reduced correction plan, takeover, or second delegation is allowed while the lease is active.
+
 #### Compact Gate
 - [ ] Wait for the wrapper to complete.
 - [ ] Show the compact result: changed files, verification results, token usage/cost, terminal status.
@@ -87,6 +96,8 @@ Then delegate via:
 
 | Flag | Env Var | Effect |
 |------|---------|--------|
+| `--start` | — | Launch in background, return job_id JSON (async mode). |
+| `--poll JOB_ID` | — | Poll async job status. |
 | `--pro` / `--flash` | `CLAUDE_DELEGATE_MODEL` | Model selection |
 | `--effort VALUE` | `CLAUDE_DELEGATE_EFFORT` | Reasoning budget |
 | `--quiet` / `--stream` | `CLAUDE_DELEGATE_OUTPUT_MODE` | Output format |
@@ -151,7 +162,7 @@ The prompt sent to Claude Code must include:
 
 Before invoking Claude Code, show the user the concrete implementation plan the orchestrator authored. This should be concise but specific enough to make ownership boundaries and verification commands visible.
 
-Invoke the wrapper directly without adding `timeout`. If Claude Code appears silent, re-run with `--stream` and inspect the wrapper's stream-json events before assuming it is stuck.
+Invoke the wrapper directly without adding `timeout`. If Claude Code appears silent, re-run with `--stream` and inspect the wrapper's stream-json events before assuming it is stuck. For long-running tasks, prefer `--start` / `--poll` — the lease prevents duplicate delegations and the orchestrator can poll for progress without assuming the executor is stuck.
 
 After Claude Code returns, show the user Claude Code's output. In quiet mode, show the compact final report. In stream mode, prefer the final result block when it is concise; if the stream output is noisy, summarize the key lines but preserve changed files, command results, errors, and any stated caveats.
 
@@ -175,5 +186,7 @@ When delegating Jira or issue tracker work, apply Jira-safe plain text formattin
 Plain `claude -p` with default permissions can appear to hang because Claude Code is waiting on permission requests. The wrapper default `bypassPermissions` avoids this entirely by suppressing all permission prompts. For debugging sessions where you want to observe tool commands before they run, use the `--interactive` flag (which sets `acceptEdits` — auto-accepts file edits but prompts on Bash/tool commands).
 
 During long-running delegations, the pipeline prints a heartbeat to stderr every 30 seconds (`Claude Code still running: model=... effort=...`). If Claude Code appears silent, check stderr first — an active heartbeat means the executor is running, its absence means it has stopped or crashed. Set `CLAUDE_DELEGATE_HEARTBEAT_SECONDS=0` to disable the heartbeat (e.g. for CI pipelines).
+
+Another common failure: the orchestrator assumes Claude Code is stuck, kills or abandons it, and starts a reduced correction plan — wasting tokens while the original Claude Code may still be working. The `--start` / `--poll` modes prevent this: a running job holds an execution lease, and the wrapper refuses to start a second delegation while the first is still running. The orchestrator should poll with `--poll <job_id>` rather than restarting.
 
 Provider or org/auth access errors usually mean Claude Code is not currently switched to a provider that can serve `deepseek-v4-pro[1m]`, or the provider token in `~/.claude/settings.json` is malformed/expired. Confirm the configured `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and model values without printing secret token contents.

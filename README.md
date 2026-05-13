@@ -121,6 +121,20 @@ The wrapper parses flags, calls `scripts/run-pipeline.py`, and prints a compact 
 
 Both transports share `scripts/pipeline.py` — the same classify → envelope → invoke → compact → profile logic.
 
+### Async delegation (lease + single-flight)
+
+For long-running tasks, use `--start` / `--poll` to prevent duplicate delegations:
+
+```bash
+# Start background delegation — returns job_id immediately
+./scripts/run-claude-code.sh --start "refactor the auth module"
+
+# Poll status
+./scripts/run-claude-code.sh --poll <job_id>
+```
+
+A running job holds an execution lease. `--start` refuses to launch a second delegation while a job is running, preventing the orchestrator from wasting tokens on duplicate/retry delegations. See the Async Delegation section in [docs/shell-wrapper-reference.md](docs/shell-wrapper-reference.md) for full details.
+
 ## The Delegation Loop
 
 1. **Plan** — The orchestrator reads project context and produces a concrete plan with ownership boundaries and verification commands.
@@ -170,6 +184,8 @@ Dollar savings vary by provider cache pricing, model tier, task size, and cache 
 | Flag | Env Var | Effect |
 |------|---------|--------|
 | *(default)* | | Pro model, quiet output, bypass permissions |
+| --start | — | Launch in background, return job_id JSON (async + lease guard) |
+| --poll JOB_ID | — | Poll job status (running/completed/failed) |
 | --pro / --flash | CLAUDE_DELEGATE_MODEL | Model tier selection |
 | --effort low\|medium\|high\|max | CLAUDE_DELEGATE_EFFORT | Reasoning budget override |
 | --quiet / --stream | CLAUDE_DELEGATE_OUTPUT_MODE | Output format (quiet: compact report, stream: raw JSON) |
@@ -262,6 +278,30 @@ Real external-system integration is **out of default CI**:
 - **GitHub release publishing:** not tested in CI. Release reports are local artifacts.
 
 Smoke tests against live external systems are reserved for manual pre-release checks. A future secret-backed CI environment for live smoke tests requires a separate decision (see ADR 0003).
+
+## Debugging & Diagnostics
+
+Health check — verify the environment in one command:
+
+```bash
+bash scripts/run-claude-code.sh --health
+```
+
+Require claude (CI environments):
+
+```bash
+CLAUDE_DELEGATE_HEALTH_REQUIRE_CLAUDE=1 bash scripts/run-claude-code.sh --health
+```
+
+Debug a failing delegation with structured logs:
+
+```bash
+CLAUDE_DELEGATE_LOG_LEVEL=DEBUG CLAUDE_DELEGATE_LOG_FORMAT=text \
+  bash scripts/run-claude-code.sh --flash "test prompt" 2>debug.log
+grep ERROR debug.log
+```
+
+Logs go to stderr. stdout (the compact report) is unchanged. Set `CLAUDE_DELEGATE_LOG_LEVEL=ERROR` to silence all but errors in production.
 
 ## Profiling
 

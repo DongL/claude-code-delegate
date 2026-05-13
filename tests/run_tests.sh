@@ -2420,6 +2420,800 @@ test_doc "ADR 0003 external-system strategy is explicit" "$ADR0003" "no-live-ser
 
 test_doc "ADR 0003 decision is documented" "$ADR0003" "Decision"
 
+# ---- logging.py tests ----
+
+echo ""
+echo "=== logging.py ==="
+
+# test_logging_py name expected_out expected_exit py_code
+test_logging_py() {
+  local name="$1" expected_out="$2" expected_exit="$3"
+  local py_script; py_script=$(mktemp "$SANDBOX/log_script.XXXX.py")
+  cat > "$py_script" <<PYEOF
+import sys, os, json, io
+sys.path.insert(0, "$SCRIPT_DIR/../scripts")
+$4
+PYEOF
+  local outfile; outfile=$(mktemp "$SANDBOX/log_out.XXXX")
+  local errfile; errfile=$(mktemp "$SANDBOX/log_err.XXXX")
+  set +e
+  python3 "$py_script" > "$outfile" 2> "$errfile"
+  local rc=$?
+  set -e
+  if [ "$rc" -ne "$expected_exit" ]; then
+    echo "  FAIL  $name (exit $rc, expected $expected_exit)"
+    echo "        stderr: $(cat "$errfile")"
+    failed=$((failed+1))
+  elif [ -n "$expected_out" ] && ! grep -qF -e "$expected_out" "$outfile"; then
+    echo "  FAIL  $name (output missing: $expected_out)"
+    echo "        output: $(cat "$outfile")"
+    echo "        stderr: $(cat "$errfile")"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+  rm -f "$py_script" "$outfile" "$errfile"
+}
+
+test_logging_py \
+  "logging module exists and imports" \
+  "logging OK" 0 \
+  "from logger import get_logger, Logger; print('logging OK')"
+
+test_logging_py \
+  "get_logger returns Logger instance with debug/info/warn/error methods" \
+  "logger OK" 0 \
+  "from logger import get_logger
+logger = get_logger('test')
+assert hasattr(logger, 'debug'), 'no debug'
+assert hasattr(logger, 'info'), 'no info'
+assert hasattr(logger, 'warn'), 'no warn'
+assert hasattr(logger, 'error'), 'no error'
+print('logger OK')"
+
+test_logging_py \
+  "JSON format outputs valid JSON lines with ts/level/logger/msg keys" \
+  "json_valid" 0 \
+  "import os, json
+os.environ['CLAUDE_DELEGATE_LOG_FORMAT'] = 'json'
+from logger import get_logger
+logger = get_logger('test-json')
+stderr_capture = io.StringIO()
+old_stderr = sys.stderr
+sys.stderr = stderr_capture
+logger.info('hello world')
+sys.stderr = old_stderr
+line = stderr_capture.getvalue().strip()
+record = json.loads(line)
+assert 'ts' in record, 'missing ts'
+assert 'level' in record, 'missing level'
+assert record['level'] == 'INFO', 'wrong level'
+assert 'logger' in record, 'missing logger'
+assert record['logger'] == 'test-json', 'wrong logger'
+assert 'msg' in record, 'missing msg'
+assert record['msg'] == 'hello world', 'wrong msg'
+print('json_valid')"
+
+test_logging_py \
+  "text format outputs timestamp [LEVEL] logger: message key=value" \
+  "text_format" 0 \
+  "import os
+os.environ['CLAUDE_DELEGATE_LOG_FORMAT'] = 'text'
+from logger import get_logger
+import io, sys
+logger = get_logger('test-text')
+stderr_capture = io.StringIO()
+sys.stderr = stderr_capture
+logger.info('hello', answer=42)
+sys.stderr = sys.__stderr__
+line = stderr_capture.getvalue().strip()
+assert '[INFO]' in line, 'missing [INFO]'
+assert 'test-text:' in line, 'missing logger name'
+assert 'hello' in line, 'missing message'
+assert 'answer=42' in line, 'missing key=value'
+print('text_format')"
+
+test_logging_py \
+  "log level env var filters: DEBUG shows all, WARN hides debug+info" \
+  "level_filter" 0 \
+  "import os, io, sys
+from logger import get_logger
+
+# Test WARN hides debug+info
+os.environ['CLAUDE_DELEGATE_LOG_LEVEL'] = 'WARN'
+os.environ['CLAUDE_DELEGATE_LOG_FORMAT'] = 'text'
+logger = get_logger('test-filter')
+capture = io.StringIO()
+sys.stderr = capture
+logger.debug('should not appear')
+logger.info('should not appear too')
+logger.warn('should appear')
+sys.stderr = sys.__stderr__
+output = capture.getvalue()
+assert 'should not appear' not in output, 'debug leaked at WARN level'
+assert 'should not appear too' not in output, 'info leaked at WARN level'
+assert 'should appear' in output, 'warn missing at WARN level'
+
+# Test DEBUG shows all
+os.environ['CLAUDE_DELEGATE_LOG_LEVEL'] = 'DEBUG'
+logger2 = get_logger('test-filter2')
+capture2 = io.StringIO()
+sys.stderr = capture2
+logger2.debug('debug visible')
+logger2.info('info visible')
+sys.stderr = sys.__stderr__
+output2 = capture2.getvalue()
+assert 'debug visible' in output2, 'debug missing at DEBUG level'
+assert 'info visible' in output2, 'info visible at DEBUG level'
+print('level_filter')"
+
+test_logging_py \
+  "extra kwargs appear in JSON output" \
+  "extra_kwargs" 0 \
+  "import os, json, io, sys
+os.environ['CLAUDE_DELEGATE_LOG_FORMAT'] = 'json'
+from logger import get_logger
+logger = get_logger('test-extra')
+capture = io.StringIO()
+sys.stderr = capture
+logger.info('test', user_id=123, action='login')
+sys.stderr = sys.__stderr__
+record = json.loads(capture.getvalue().strip())
+assert record['user_id'] == 123, 'missing user_id'
+assert record['action'] == 'login', 'missing action'
+print('extra_kwargs')"
+
+# ---- health-check.py tests ----
+
+echo ""
+echo "=== health-check.py ==="
+
+HEALTH_CHECK="$SCRIPT_DIR/../scripts/health-check.py"
+
+test_logging_py \
+  "health-check module exists and imports" \
+  "health_check OK" 0 \
+  "import importlib.util, os
+spec = importlib.util.spec_from_file_location('health_check', os.path.join('$SCRIPT_DIR', '../scripts/health-check.py'))
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+assert hasattr(mod, 'run_health_checks'), 'missing run_health_checks'
+print('health_check OK')"
+
+test_health_bash() {
+  local name="$1" expected_out="$2" expected_exit="$3"
+  shift 3
+  local outfile; outfile=$(mktemp "$SANDBOX/hc_out.XXXX")
+  set +e
+  python3 "$HEALTH_CHECK" "$@" > "$outfile" 2>/dev/null
+  local rc=$?
+  set -e
+  if [ "$rc" -ne "$expected_exit" ]; then
+    echo "  FAIL  $name (exit $rc, expected $expected_exit)"
+    echo "        output: $(cat "$outfile")"
+    failed=$((failed+1))
+  elif [ -n "$expected_out" ] && ! grep -qF -e "$expected_out" "$outfile"; then
+    echo "  FAIL  $name (output missing: $expected_out)"
+    echo "        output: $(cat "$outfile")"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+  rm -f "$outfile"
+}
+
+test_health_bash \
+  "--health flag produces expected output (starts with PASS or FAIL)" \
+  "PASS python3" 0
+
+test_health_bash \
+  "health check reports python3 available" \
+  "PASS python3" 0
+
+test_health_bash \
+  "health check reports claude on PATH" \
+  "claude" 0
+
+test_health_bash \
+  "health check reports pipeline.py exists" \
+  "pipeline.py" 0
+
+test_health_bash \
+  "health check exit 0 when all pass" \
+  "HEALTHY" 0
+
+test_health_bash \
+  "health check output includes HEALTHY or UNHEALTHY" \
+  "HEALTHY" 0
+
+# Test exit 1 when a check fails
+test_health_fail() {
+  local outfile; outfile=$(mktemp "$SANDBOX/hcf_out.XXXX")
+  # Build a PATH without any directory that contains an executable "claude"
+  local clean_path=""
+  local saved_ifs="$IFS"; IFS=:
+  for dir in $PATH; do
+    if [ ! -x "$dir/claude" ]; then
+      clean_path="${clean_path}${clean_path:+:}${dir}"
+    fi
+  done
+  IFS="$saved_ifs"
+  set +e
+  CLAUDE_DELEGATE_HEALTH_REQUIRE_CLAUDE=1 PATH="$clean_path" python3 "$HEALTH_CHECK" > "$outfile" 2>/dev/null
+  local rc=$?
+  set -e
+  if [ "$rc" -ne 1 ]; then
+    echo "  FAIL  health check exit 1 when a check fails (exit $rc, expected 1)"
+    echo "        output: $(cat "$outfile")"
+    failed=$((failed+1))
+  elif ! grep -qF "UNHEALTHY" "$outfile"; then
+    echo "  FAIL  health check output includes UNHEALTHY when failing"
+    echo "        output: $(cat "$outfile")"
+    failed=$((failed+1))
+  else
+    echo "  PASS  health check exit 1 when a check fails"
+    passed=$((passed+1))
+  fi
+  rm -f "$outfile"
+}
+test_health_fail
+
+# ---- async delegation tests ----
+
+echo ""
+echo "=== async delegation ==="
+
+# test_async_start name expected_exit expected_json_key [args...]
+# Like test_case but captures stdout (JSON) instead of discarding it
+test_async_start() {
+  local name="$1" expected_exit="$2" expected_key="$3"
+  shift 3
+  local stdout_file; stdout_file=$(mktemp "$SANDBOX/stdout.XXXX")
+  local capture; capture=$(mktemp "$SANDBOX/cap.XXXX")
+  set +e
+  CLAUDE_DELEGATE_TEST_CAPTURE="$capture" "$RUNNER" "$@" > "$stdout_file" 2>/dev/null
+  local got_exit=$?
+  set -e
+  if [ "$got_exit" -ne "$expected_exit" ]; then
+    echo "  FAIL  $name (exit $got_exit, expected $expected_exit)"
+    failed=$((failed+1))
+  elif ! python3 -c "import sys,json; d=json.load(sys.stdin); assert '$expected_key' in d" < "$stdout_file" 2>/dev/null; then
+    echo "  FAIL  $name (JSON missing key: $expected_key)"
+    echo "        stdout: $(cat "$stdout_file")"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+  rm -f "$stdout_file" "$capture"
+}
+
+# test_async_poll name expected_exit expected_json_key [args...]
+test_async_poll() {
+  local name="$1" expected_exit="$2" expected_key="$3"
+  shift 3
+  local stdout_file; stdout_file=$(mktemp "$SANDBOX/stdout.XXXX")
+  set +e
+  "$RUNNER" "$@" > "$stdout_file" 2>/dev/null
+  local got_exit=$?
+  set -e
+  if [ "$got_exit" -ne "$expected_exit" ]; then
+    echo "  FAIL  $name (exit $got_exit, expected $expected_exit)"
+    failed=$((failed+1))
+  elif ! python3 -c "import sys,json; d=json.load(sys.stdin); assert '$expected_key' in d" < "$stdout_file" 2>/dev/null; then
+    echo "  FAIL  $name (JSON missing key: $expected_key)"
+    echo "        stdout: $(cat "$stdout_file")"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+  rm -f "$stdout_file"
+}
+
+# --start returns JSON with job_id, status, lease_active
+test_async_start "async start returns job_id" 0 "job_id" --start "test prompt"
+
+test_async_start "async start returns running status" 0 "status" --start "test prompt"
+
+test_async_start "async start returns lease_active" 0 "lease_active" --start "test prompt"
+
+# --start returns a positive pid (not 0)
+async_pid_out=$(mktemp "$SANDBOX/async_pid.XXXX")
+set +e
+"$RUNNER" --start "test prompt" > "$async_pid_out" 2>/dev/null
+async_pid_rc=$?
+set -e
+async_pid=$(python3 -c "import sys,json; print(json.load(sys.stdin).get('pid',0))" < "$async_pid_out" 2>/dev/null || echo "0")
+if [ "$async_pid_rc" -eq 0 ] && [ "$async_pid" -gt 0 ] 2>/dev/null; then
+  echo "  PASS  async start returns positive pid (pid=$async_pid)"
+  passed=$((passed+1))
+else
+  echo "  FAIL  async start returns positive pid (pid=$async_pid, rc=$async_pid_rc)"
+  echo "        stdout: $(cat "$async_pid_out")"
+  failed=$((failed+1))
+fi
+rm -f "$async_pid_out"
+
+# --poll on non-existent job (status is a value, not a key, so test inline)
+async_poll_out=$(mktemp "$SANDBOX/ap_out.XXXX")
+set +e
+"$RUNNER" --poll "nonexistent-job-id" > "$async_poll_out" 2>/dev/null
+poll_rc=$?
+set -e
+poll_status=$(python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))" < "$async_poll_out" 2>/dev/null || echo "")
+if [ "$poll_rc" -ne 1 ] || [ "$poll_status" != "not_found" ]; then
+  echo "  FAIL  poll nonexistent job returns not_found (rc=$poll_rc, status=$poll_status)"
+  failed=$((failed+1))
+else
+  echo "  PASS  poll nonexistent job returns not_found"
+  passed=$((passed+1))
+fi
+rm -f "$async_poll_out"
+
+# --start then --poll on the same job (fake claude exits quickly, may be completed or running)
+# We capture the job_id and poll it
+async_capture=$(mktemp "$SANDBOX/async_capture.XXXX")
+set +e
+CLAUDE_DELEGATE_TEST_CAPTURE=$(mktemp "$SANDBOX/acap.XXXX") "$RUNNER" --start "test prompt" > "$async_capture" 2>/dev/null
+set -e
+job_id=$(python3 -c "import sys,json; print(json.load(sys.stdin)['job_id'])" < "$async_capture" 2>/dev/null || echo "")
+if [ -n "$job_id" ] && [ "$job_id" != "None" ]; then
+  # Poll the job — it may be completed (fake claude exits instantly) or running
+  poll_out=$(mktemp "$SANDBOX/poll_out.XXXX")
+  set +e
+  "$RUNNER" --poll "$job_id" > "$poll_out" 2>/dev/null
+  poll_rc=$?
+  set -e
+  poll_status=$(python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" < "$poll_out" 2>/dev/null || echo "")
+  if [ "$poll_status" = "completed" ] || [ "$poll_status" = "running" ] || [ "$poll_status" = "failed" ]; then
+    echo "  PASS  async start-then-poll (status=$poll_status)"
+    passed=$((passed+1))
+  else
+    echo "  FAIL  async start-then-poll (unexpected status=$poll_status)"
+    echo "        stdout: $(cat "$poll_out")"
+    failed=$((failed+1))
+  fi
+  rm -f "$poll_out"
+else
+  echo "  FAIL  async start-then-poll (could not extract job_id)"
+  echo "        stdout: $(cat "$async_capture")"
+  failed=$((failed+1))
+fi
+rm -f "$async_capture"
+
+# ---- lease / single-flight tests ----
+
+echo ""
+echo "=== lease / single-flight ==="
+
+# test_job_manager_py name expected_out expected_exit py_code_body
+test_job_manager_py() {
+  local name="$1" expected_out="$2" expected_exit="$3"
+  local py_script; py_script=$(mktemp "$SANDBOX/jm_script.XXXX.py")
+  cat > "$py_script" <<PYEOF
+import sys, os, json, tempfile, subprocess, time
+sys.path.insert(0, "$SCRIPT_DIR/../scripts")
+$4
+PYEOF
+  local outfile; outfile=$(mktemp "$SANDBOX/jm_out.XXXX")
+  local errfile; errfile=$(mktemp "$SANDBOX/jm_err.XXXX")
+  set +e
+  python3 "$py_script" > "$outfile" 2> "$errfile"
+  local rc=$?
+  set -e
+  if [ "$rc" -ne "$expected_exit" ]; then
+    echo "  FAIL  $name (exit $rc, expected $expected_exit)"
+    echo "        stderr: $(cat "$errfile")"
+    failed=$((failed+1))
+  elif [ -n "$expected_out" ] && ! grep -qF -e "$expected_out" "$outfile"; then
+    echo "  FAIL  $name (output missing: $expected_out)"
+    echo "        output: $(cat "$outfile")"
+    echo "        stderr: $(cat "$errfile")"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+  rm -f "$py_script" "$outfile" "$errfile"
+}
+
+test_job_manager_py \
+  "job_manager module exists and imports" \
+  "job_manager OK" 0 \
+  "from job_manager import get_jobs_dir, create_job_id, create_job_meta, read_job_meta, find_active_lease, get_job_status, write_job_result
+print('job_manager OK')"
+
+test_job_manager_py \
+  "create_job_id returns hex string" \
+  "job_id_len=12" 0 \
+  "from job_manager import create_job_id
+jid = create_job_id()
+assert len(jid) == 12
+print('job_id_len=12')"
+
+test_job_manager_py \
+  "create_job_meta and read_job_meta roundtrip" \
+  "roundtrip OK" 0 \
+  "from job_manager import create_job_meta, read_job_meta, get_jobs_dir
+jid = 'test-roundtrip'
+meta = create_job_meta(jid, pid=12345, prompt='test prompt', model='pro', effort='max', permission_mode='bypassPermissions', mcp_mode='all', output_mode='quiet')
+assert meta['job_id'] == jid
+assert meta['pid'] == 12345
+assert meta['status'] == 'running'
+readback = read_job_meta(jid)
+assert readback == meta
+print('roundtrip OK')"
+
+test_job_manager_py \
+  "find_active_lease returns None when no jobs" \
+  "no_lease=None" 0 \
+  "from job_manager import find_active_lease, get_jobs_dir
+import shutil, os
+# clean up test jobs
+jd = get_jobs_dir()
+for d in jd.iterdir():
+    if d.is_dir():
+        shutil.rmtree(d)
+result = find_active_lease()
+print('no_lease={}'.format(result))"
+
+test_job_manager_py \
+  "find_active_lease returns running job with alive pid" \
+  "found_active_lease" 0 \
+  "from job_manager import find_active_lease, create_job_meta, get_jobs_dir
+import subprocess, time, shutil
+# Use a sleep process as a fake running job
+jd = get_jobs_dir()
+for d in jd.iterdir():
+    if d.is_dir():
+        shutil.rmtree(d)
+proc = subprocess.Popen(['sleep', '30'])
+create_job_meta(job_id='lease-test', pid=proc.pid, prompt='test', model='pro', effort='max', permission_mode='bypassPermissions', mcp_mode='all', output_mode='quiet')
+lease = find_active_lease()
+proc.terminate()
+proc.wait()
+if lease and lease['job_id'] == 'lease-test':
+    print('found_active_lease')
+else:
+    print('no_lease_found: {}'.format(lease))"
+
+test_job_manager_py \
+  "find_active_lease abandons dead pid and returns None" \
+  "abandoned_lease=None" 0 \
+  "from job_manager import find_active_lease, create_job_meta, get_jobs_dir
+import subprocess, time, shutil
+jd = get_jobs_dir()
+for d in jd.iterdir():
+    if d.is_dir():
+        shutil.rmtree(d)
+proc = subprocess.Popen(['sleep', '0.1'])
+create_job_meta(job_id='dead-test', pid=proc.pid, prompt='test', model='pro', effort='max', permission_mode='bypassPermissions', mcp_mode='all', output_mode='quiet')
+proc.wait()
+time.sleep(0.2)
+lease = find_active_lease()
+print('abandoned_lease={}'.format(lease))"
+
+test_job_manager_py \
+  "_pid_alive returns False for pid=0" \
+  "pid0_not_alive" 0 \
+  "from job_manager import _pid_alive
+assert _pid_alive(0) == False
+assert _pid_alive(-1) == False
+print('pid0_not_alive')"
+
+test_job_manager_py \
+  "find_active_lease does not treat pid=0 as alive" \
+  "no_lease_pid0" 0 \
+  "from job_manager import find_active_lease, create_job_meta, get_jobs_dir
+import shutil
+jd = get_jobs_dir()
+for d in jd.iterdir():
+    if d.is_dir():
+        shutil.rmtree(d)
+create_job_meta(job_id='pid0-test', pid=0, prompt='test', model='pro', effort='max', permission_mode='bypassPermissions', mcp_mode='all', output_mode='quiet')
+lease = find_active_lease()
+assert lease is None, 'pid=0 should not be active: {}'.format(lease)
+print('no_lease_pid0')"
+
+test_job_manager_py \
+  "get_job_status returns running for alive pid" \
+  "status=running" 0 \
+  "from job_manager import get_job_status, create_job_meta, get_jobs_dir
+import subprocess, shutil
+jd = get_jobs_dir()
+for d in jd.iterdir():
+    if d.is_dir():
+        shutil.rmtree(d)
+proc = subprocess.Popen(['sleep', '30'])
+create_job_meta(job_id='status-test', pid=proc.pid, prompt='test', model='pro', effort='max', permission_mode='bypassPermissions', mcp_mode='all', output_mode='quiet')
+status = get_job_status('status-test')
+proc.terminate()
+proc.wait()
+print('status={}'.format(status.get('status')))"
+
+test_job_manager_py \
+  "get_job_status returns completed when result exists with rc=0" \
+  "status=completed" 0 \
+  "from job_manager import get_job_status, create_job_meta, write_job_result, get_jobs_dir
+import shutil
+jd = get_jobs_dir()
+for d in jd.iterdir():
+    if d.is_dir():
+        shutil.rmtree(d)
+create_job_meta(job_id='complete-test', pid=99999, prompt='test', model='pro', effort='max', permission_mode='bypassPermissions', mcp_mode='all', output_mode='quiet')
+write_job_result('complete-test', returncode=0, stdout='{\"type\":\"result\",\"result\":\"done\"}', stderr='')
+status = get_job_status('complete-test')
+print('status={}'.format(status.get('status')))"
+
+test_job_manager_py \
+  "get_job_status returns failed when result exists with rc!=0" \
+  "status=failed" 0 \
+  "from job_manager import get_job_status, create_job_meta, write_job_result
+import shutil
+create_job_meta(job_id='fail-test', pid=99999, prompt='test', model='pro', effort='max', permission_mode='bypassPermissions', mcp_mode='all', output_mode='quiet')
+write_job_result('fail-test', returncode=1, stdout='', stderr='error happened')
+status = get_job_status('fail-test')
+print('status={}'.format(status.get('status')))"
+
+test_job_manager_py \
+  "get_job_status returns not_found for nonexistent job" \
+  "status=not_found" 0 \
+  "from job_manager import get_job_status
+status = get_job_status('nonexistent-job')
+print('status={}'.format(status.get('status')))"
+
+# ---- start_delegation_async pipeline test ----
+
+test_job_manager_py \
+  "start_delegation_async with fake claude returns job_id" \
+  "job_id_ok" 0 \
+  "from pipeline import start_delegation_async
+result = start_delegation_async('test prompt', model_tier='auto', effort='auto', permission_mode='auto', mcp_mode='all', context_mode='auto', subagent_mode='off', output_mode='quiet')
+assert 'job_id' in result
+assert result['status'] in ('running', 'lease_held')
+print('job_id_ok')"
+
+test_job_manager_py \
+  "start_delegation_async includes lease_active=true and positive pid" \
+  "lease_active_ok" 0 \
+  "from pipeline import start_delegation_async
+result = start_delegation_async('test prompt')
+assert result.get('lease_active') == True
+assert isinstance(result.get('pid'), int) and result['pid'] > 0, f'expected positive pid, got {result.get(\"pid\")}'
+print('lease_active_ok')"
+
+test_job_manager_py \
+  "poll_delegation_status returns status dict" \
+  "poll_status_ok" 0 \
+  "from pipeline import start_delegation_async, poll_delegation_status
+import time
+start_result = start_delegation_async('test prompt')
+jid = start_result['job_id']
+time.sleep(0.5)
+status = poll_delegation_status(jid)
+assert 'status' in status
+assert status['job_id'] == jid
+print('poll_status_ok: {}'.format(status['status']))"
+
+test_job_manager_py \
+  "poll_delegation_status returns not_found for bad id" \
+  "poll_not_found_ok" 0 \
+  "from pipeline import poll_delegation_status
+status = poll_delegation_status('no-such-job')
+assert status['status'] == 'not_found'
+print('poll_not_found_ok')"
+
+# ---- lease enforcement through pipeline ----
+
+test_job_manager_py \
+  "start_delegation_async rejects duplicate when lease active" \
+  "lease_rejected_ok" 0 \
+  "from pipeline import start_delegation_async
+from job_manager import create_job_meta, get_jobs_dir
+import subprocess, shutil
+# Clean up
+jd = get_jobs_dir()
+for d in jd.iterdir():
+    if d.is_dir():
+        shutil.rmtree(d)
+# Create a fake running job
+proc = subprocess.Popen(['sleep', '30'])
+create_job_meta(job_id='active-lease', pid=proc.pid, prompt='test', model='pro', effort='max', permission_mode='bypassPermissions', mcp_mode='all', output_mode='quiet')
+# Try to start another delegation
+result = start_delegation_async('new prompt')
+proc.terminate()
+proc.wait()
+if result['status'] == 'lease_held' and result['job_id'] == 'active-lease':
+    print('lease_rejected_ok')
+else:
+    print('lease_not_rejected: {}'.format(result))"
+
+# ---- async waiter / supervisor returncode tests ----
+
+echo ""
+echo "=== async waiter returncode ==="
+
+# Test 1: job with result.json rc=3 -> get_job_status reports failed
+test_job_manager_py \
+  "job result: non-zero rc reports failed" \
+  "result_fail_ok" 0 \
+  "from job_manager import get_jobs_dir, create_job_meta, get_job_status, write_job_result
+import shutil
+jd = get_jobs_dir()
+for d in jd.iterdir():
+    if d.is_dir():
+        shutil.rmtree(d)
+create_job_meta('result-fail', pid=99999, prompt='test', model='flash', effort='low', permission_mode='bypassPermissions', mcp_mode='all', output_mode='quiet')
+write_job_result('result-fail', returncode=3, stdout='some output', stderr='error happened')
+status = get_job_status('result-fail')
+assert status['status'] == 'failed', f\"expected failed, got {status['status']}\"
+assert status['returncode'] == 3, f\"expected rc=3, got {status['returncode']}\"
+print('result_fail_ok')"
+
+# Test 2: job with result.json rc=0 -> get_job_status reports completed
+test_job_manager_py \
+  "job result: zero rc reports completed" \
+  "result_ok" 0 \
+  "from job_manager import get_jobs_dir, create_job_meta, get_job_status, write_job_result
+import shutil
+jd = get_jobs_dir()
+for d in jd.iterdir():
+    if d.is_dir():
+        shutil.rmtree(d)
+create_job_meta('result-ok', pid=99999, prompt='test', model='flash', effort='low', permission_mode='bypassPermissions', mcp_mode='all', output_mode='quiet')
+write_job_result('result-ok', returncode=0, stdout='{\"type\":\"result\",\"result\":\"done\"}', stderr='')
+status = get_job_status('result-ok')
+assert status['status'] == 'completed', f\"expected completed, got {status['status']}\"
+assert status['returncode'] == 0, f\"expected rc=0, got {status['returncode']}\"
+print('result_ok')"
+
+# Test 3: running job stays running before result recorded
+test_job_manager_py \
+  "async waiter: running stays running before result recorded" \
+  "waiter_running_ok" 0 \
+  "from job_manager import get_jobs_dir, create_job_meta, get_job_status
+import subprocess, time, shutil
+jd = get_jobs_dir()
+for d in jd.iterdir():
+    if d.is_dir():
+        shutil.rmtree(d)
+job_id = 'waiter-running'
+proc = subprocess.Popen(['sleep', '30'])
+create_job_meta(job_id, proc.pid, 'test', 'flash', 'low', 'bypass', 'all', 'quiet')
+status = get_job_status(job_id)
+assert status['status'] == 'running', f\"expected running, got {status['status']}\"
+assert status['pid_alive'] == True
+proc.terminate()
+proc.wait()
+print('waiter_running_ok')"
+
+# ---- wrapper-level --start / --poll tests ----
+
+echo ""
+echo "=== wrapper --start / --poll ==="
+
+# Create fake claude that exits 0 with valid result JSON
+cat > "$SANDBOX/claude-ok" <<'FAKEOK'
+#!/usr/bin/env bash
+cat <<'JSONEOF'
+{"type":"result","result":"done","usage":{"input_tokens":5,"output_tokens":10}}
+JSONEOF
+FAKEOK
+chmod +x "$SANDBOX/claude-ok"
+
+# Create fake claude that exits non-zero with stdout
+cat > "$SANDBOX/claude-fail" <<'FAKEFAIL'
+#!/usr/bin/env bash
+echo "some output before crash"
+echo "some stderr output" >&2
+exit 3
+FAKEFAIL
+chmod +x "$SANDBOX/claude-fail"
+
+# Create fake claude that sleeps for 30s
+cat > "$SANDBOX/claude-sleep" <<'FAKESLEEP'
+#!/usr/bin/env bash
+sleep 30
+FAKESLEEP
+chmod +x "$SANDBOX/claude-sleep"
+
+export CLAUDE_DELEGATE_RUNTIME_DIR="$SANDBOX/runtime"
+
+# Test 1: fake claude exits 0 with valid result JSON → poll returns completed
+wrap_start_out=$(mktemp "$SANDBOX/wrap_start.XXXX")
+set +e
+"$RUNNER" --start "test prompt" > "$wrap_start_out" 2>/dev/null
+set -e
+wrap_job_id=$(python3 -c "import sys,json; print(json.load(sys.stdin).get('job_id',''))" < "$wrap_start_out" 2>/dev/null || echo "")
+if [ -n "$wrap_job_id" ] && [ "$wrap_job_id" != "None" ]; then
+  sleep 1
+  wrap_poll_out=$(mktemp "$SANDBOX/wrap_poll.XXXX")
+  set +e
+  "$RUNNER" --poll "$wrap_job_id" > "$wrap_poll_out" 2>/dev/null
+  set -e
+  wrap_poll_status=$(python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" < "$wrap_poll_out" 2>/dev/null || echo "")
+  if [ "$wrap_poll_status" = "completed" ]; then
+    echo "  PASS  wrapper --start then --poll returns completed (exit 0)"
+    passed=$((passed+1))
+  else
+    echo "  FAIL  wrapper --start then --poll returns completed (exit 0) (status=$wrap_poll_status)"
+    echo "        poll output: $(cat "$wrap_poll_out")"
+    failed=$((failed+1))
+  fi
+  rm -f "$wrap_poll_out"
+else
+  echo "  FAIL  wrapper --start then --poll returns completed (exit 0) (no job_id)"
+  echo "        output: $(cat "$wrap_start_out")"
+  failed=$((failed+1))
+fi
+rm -f "$wrap_start_out"
+
+# Test 2: fake claude exits non-zero → poll returns failed with real returncode
+cp "$SANDBOX/claude-fail" "$SANDBOX/claude"
+wrap_start_out2=$(mktemp "$SANDBOX/wrap_start2.XXXX")
+set +e
+"$RUNNER" --start "test prompt" > "$wrap_start_out2" 2>/dev/null
+set -e
+wrap_job_id2=$(python3 -c "import sys,json; print(json.load(sys.stdin).get('job_id',''))" < "$wrap_start_out2" 2>/dev/null || echo "")
+if [ -n "$wrap_job_id2" ] && [ "$wrap_job_id2" != "None" ]; then
+  sleep 1
+  wrap_poll_out2=$(mktemp "$SANDBOX/wrap_poll2.XXXX")
+  set +e
+  "$RUNNER" --poll "$wrap_job_id2" > "$wrap_poll_out2" 2>/dev/null
+  set -e
+  wrap_poll_status2=$(python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" < "$wrap_poll_out2" 2>/dev/null || echo "")
+  wrap_poll_rc2=$(python3 -c "import sys,json; print(json.load(sys.stdin).get('returncode',-999))" < "$wrap_poll_out2" 2>/dev/null || echo "")
+  if [ "$wrap_poll_status2" = "failed" ] && [ "$wrap_poll_rc2" = "3" ]; then
+    echo "  PASS  wrapper --start then --poll returns failed with returncode=3 (exit non-zero)"
+    passed=$((passed+1))
+  else
+    echo "  FAIL  wrapper --start then --poll returns failed with returncode=3 (exit non-zero) (status=$wrap_poll_status2, rc=$wrap_poll_rc2)"
+    echo "        poll output: $(cat "$wrap_poll_out2")"
+    failed=$((failed+1))
+  fi
+  rm -f "$wrap_poll_out2"
+else
+  echo "  FAIL  wrapper --start then --poll returns failed with returncode=3 (exit non-zero) (no job_id)"
+  echo "        output: $(cat "$wrap_start_out2")"
+  failed=$((failed+1))
+fi
+rm -f "$wrap_start_out2"
+
+# Test 3: fake claude sleeps → second --start returns lease_held
+cp "$SANDBOX/claude-sleep" "$SANDBOX/claude"
+wrap_start_out3=$(mktemp "$SANDBOX/wrap_start3.XXXX")
+set +e
+"$RUNNER" --start "first job" > "$wrap_start_out3" 2>/dev/null
+set -e
+sleep 1
+wrap_job_id3=$(python3 -c "import sys,json; print(json.load(sys.stdin).get('job_id',''))" < "$wrap_start_out3" 2>/dev/null || echo "")
+wrap_start_out3b=$(mktemp "$SANDBOX/wrap_start3b.XXXX")
+set +e
+"$RUNNER" --start "second job" > "$wrap_start_out3b" 2>/dev/null
+set -e
+wrap_status3=$(python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" < "$wrap_start_out3b" 2>/dev/null || echo "")
+wrap_lease_job_id=$(python3 -c "import sys,json; print(json.load(sys.stdin).get('job_id',''))" < "$wrap_start_out3b" 2>/dev/null || echo "")
+if [ "$wrap_status3" = "lease_held" ] && [ "$wrap_lease_job_id" = "$wrap_job_id3" ]; then
+  echo "  PASS  wrapper second --start returns lease_held while first job running"
+  passed=$((passed+1))
+else
+  echo "  FAIL  wrapper second --start returns lease_held while first job running (status=$wrap_status3, lease_job_id=$wrap_lease_job_id, first_job_id=$wrap_job_id3)"
+  echo "        output: $(cat "$wrap_start_out3b")"
+  failed=$((failed+1))
+fi
+rm -f "$wrap_start_out3" "$wrap_start_out3b"
+
+# Restore original fake claude (exit 0 with valid JSON)
+cp "$SANDBOX/claude-ok" "$SANDBOX/claude"
+# Clean up runtime dir for subsequent tests
+rm -rf "$CLAUDE_DELEGATE_RUNTIME_DIR"
+unset CLAUDE_DELEGATE_RUNTIME_DIR
+
+
+
 # ---- summary ----
 
 echo ""

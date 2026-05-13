@@ -13,11 +13,16 @@
 | `--mcp MODE` | `CLAUDE_DELEGATE_MCP_MODE` | MCP server loading (`all`/`none`/`jira`/`linear`/`sequential-thinking`) |
 | `--full-context` | `CLAUDE_DELEGATE_CONTEXT_MODE` | Prompt adaptation (`auto`: template envelope, `full`: raw prompt) |
 | `--allow-subagents` | `CLAUDE_DELEGATE_SUBAGENTS` | Subagent control (`on`/`off`, default `off`) |
+| `--start` | — | Launch delegation in background, return job_id JSON (async mode). |
+| `--poll JOB_ID` | — | Poll async job status, return structured JSON. |
+| `--health` | — | Run health checks (python3, claude, core scripts, runtime, mcp) and exit. Exit 0 = HEALTHY, 1 = UNHEALTHY. |
 | *(none)* | `CLAUDE_DELEGATE_THINKING_TOKENS` | Explicit thinking token budget (unset by default) |
 | *(none)* | `CLAUDE_DELEGATE_HEARTBEAT_SECONDS` | Heartbeat interval in seconds (default `30`, `0` disables) |
 | *(none)* | `CLAUDE_DELEGATE_PROFILE_LOG` | JSONL path for profiling metadata |
 | *(none)* | `CLAUDE_DELEGATE_DIR` | Install path override for resolver |
 | *(none)* | `CLAUDE_DELEGATE_MCP_CONFIG_PATH` | Path to `.mcp.json` for single-server MCP mode |
+| *(none)* | `CLAUDE_DELEGATE_LOG_LEVEL` | Log level: `DEBUG`, `INFO`, `WARN`, `ERROR` |
+| *(none)* | `CLAUDE_DELEGATE_LOG_FORMAT` | Log format: `json` or `text` |
 
 ## Delegation Suitability
 
@@ -143,6 +148,56 @@ Environment variable override:
 CLAUDE_DELEGATE_MCP_MODE=jira \
   "$(resolve_delegator)" "$PROMPT"
 ```
+
+## Async Delegation (Lease + Single-Flight)
+
+Use `--start` to launch a delegation in the background and `--poll <job_id>` to check status. This mode solves a common failure pattern: the orchestrator assumes Claude Code is stuck, kills or abandons it, and starts a reduced correction plan — wasting tokens while the original invocation may still be working.
+
+### Lease Semantics
+
+- A running delegation job owns an **execution lease**. While a job is running, no second delegation may start.
+- The orchestrator may only poll and report status. No retry, reduced correction plan, takeover, or second delegation is allowed until the original job reaches a terminal state.
+- A long-running invocation is **not** evidence of stuckness by itself. Poll to check progress.
+
+### Start a Delegation
+
+```bash
+"$(resolve_delegator)" --start "$PROMPT"
+```
+
+Output (JSON to stdout):
+
+```json
+{"status": "running", "job_id": "a1b2c3d4e5f6", "pid": 12345, "model": "deepseek-v4-pro[1m]", "effort": "max", "lease_active": true}
+```
+
+If another job is already running, the wrapper returns the active lease instead of starting a duplicate:
+
+```json
+{"status": "lease_held", "job_id": "existing-job-id", "pid": 12345, ...}
+```
+
+### Poll Status
+
+```bash
+"$(resolve_delegator)" --poll <job_id>
+```
+
+Output:
+
+- **running** — `{"status": "running", "job_id": "...", "pid_alive": true, "stdout_bytes": ..., ...}`
+- **completed** — `{"status": "completed", "result": "...", "usage": {...}, "cost_usd": ..., ...}`
+- **failed** — `{"status": "failed", "returncode": 1, "stderr_tail": "...", ...}`
+- **not_found** — `{"status": "not_found", "job_id": "..."}`
+
+### Async Flags
+
+| Flag | Env Var | Effect |
+|------|---------|--------|
+| `--start` | — | Launch delegation in background, return job_id JSON |
+| `--poll JOB_ID` | — | Poll job status, return structured JSON |
+
+All classification, envelope, model, effort, permission, MCP, and context flags work with `--start` as they do with synchronous delegation.
 
 ## Other overrides
 

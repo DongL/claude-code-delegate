@@ -6,6 +6,8 @@ if [[ $# -lt 1 ]]; then
   exit 2
 fi
 
+mode="exec"
+poll_job_id=""
 model_tier="auto"
 output_mode="${CLAUDE_DELEGATE_OUTPUT_MODE:-quiet}"
 mcp_mode="${CLAUDE_DELEGATE_MCP_MODE:-all}"
@@ -27,6 +29,22 @@ fi
 
 while [[ $# -gt 0 ]]; do
   case "${1:-}" in
+    --health)
+      exec python3 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/health-check.py"
+      ;;
+    --start)
+      mode="start"
+      shift
+      ;;
+    --poll)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing job_id for --poll" >&2
+        exit 2
+      fi
+      mode="poll"
+      poll_job_id="$2"
+      shift 2
+      ;;
     --pro)
       model_tier="pro"
       shift
@@ -85,52 +103,56 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ $# -lt 1 ]]; then
-  echo "Usage: $0 [--pro|--flash] [--effort VALUE] [--quiet|--stream] [--bypass|--interactive] [--mcp MODE] [--full-context] [--allow-subagents] PROMPT [CLAUDE_ARGS...]" >&2
+if [[ $# -lt 1 ]] && [[ "$mode" != "poll" ]]; then
+  echo "Usage: $0 [--start|--poll JOB_ID] [--pro|--flash] [--effort VALUE] [--quiet|--stream] [--bypass|--interactive] [--mcp MODE] [--full-context] [--allow-subagents] PROMPT [CLAUDE_ARGS...]" >&2
   exit 2
 fi
 
-case "$output_mode" in
-  quiet|stream) ;;
-  *)
-    echo "Invalid output mode: $output_mode (expected quiet or stream)" >&2
-    exit 2
-    ;;
-esac
+if [[ "$mode" != "poll" ]]; then
+  case "$output_mode" in
+    quiet|stream) ;;
+    *)
+      echo "Invalid output mode: $output_mode (expected quiet or stream)" >&2
+      exit 2
+      ;;
+  esac
 
-case "$mcp_mode" in
-  all|none|jira|linear|sequential-thinking) ;;
-  *)
-    echo "Invalid MCP mode: $mcp_mode (expected all, none, jira, linear, or sequential-thinking)" >&2
-    exit 2
-    ;;
-esac
+  case "$mcp_mode" in
+    all|none|jira|linear|sequential-thinking) ;;
+    *)
+      echo "Invalid MCP mode: $mcp_mode (expected all, none, jira, linear, or sequential-thinking)" >&2
+      exit 2
+      ;;
+  esac
 
-case "$context_mode" in
-  auto|full) ;;
-  *)
-    echo "Invalid context mode: $context_mode (expected auto or full)" >&2
-    exit 2
-    ;;
-esac
+  case "$context_mode" in
+    auto|full) ;;
+    *)
+      echo "Invalid context mode: $context_mode (expected auto or full)" >&2
+      exit 2
+      ;;
+  esac
 
-case "$subagent_mode" in
-  on|off) ;;
-  *)
-    echo "Invalid subagent mode: $subagent_mode (expected on or off)" >&2
-    exit 2
-    ;;
-esac
+  case "$subagent_mode" in
+    on|off) ;;
+    *)
+      echo "Invalid subagent mode: $subagent_mode (expected on or off)" >&2
+      exit 2
+      ;;
+  esac
 
-case "$heartbeat_seconds" in
-  ''|*[!0-9]*)
-    echo "Invalid heartbeat seconds: $heartbeat_seconds (expected non-negative integer)" >&2
-    exit 2
-    ;;
-esac
+  case "$heartbeat_seconds" in
+    ''|*[!0-9]*)
+      echo "Invalid heartbeat seconds: $heartbeat_seconds (expected non-negative integer)" >&2
+      exit 2
+      ;;
+  esac
+fi
 
-prompt="$1"
-shift
+if [[ "$mode" != "poll" ]]; then
+  prompt="$1"
+  shift
+fi
 
 # MAX_THINKING_TOKENS is the official Claude Code env var for thinking budget.
 if [[ -n "${CLAUDE_DELEGATE_THINKING_TOKENS:-}" ]]; then
@@ -139,13 +161,35 @@ fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-exec python3 "$script_dir/run-pipeline.py" \
-  "$prompt" \
-  "$output_mode" \
-  "$model_tier" \
-  "$effort" \
-  "$permission_mode" \
-  "$mcp_mode" \
-  "$context_mode" \
-  "$subagent_mode" \
-  "$@"
+case "$mode" in
+  start)
+    exec python3 "$script_dir/run-pipeline.py" \
+      "--start" \
+      "$prompt" \
+      "$output_mode" \
+      "$model_tier" \
+      "$effort" \
+      "$permission_mode" \
+      "$mcp_mode" \
+      "$context_mode" \
+      "$subagent_mode" \
+      "$@"
+    ;;
+  poll)
+    exec python3 "$script_dir/run-pipeline.py" \
+      "--poll" \
+      "$poll_job_id"
+    ;;
+  *)
+    exec python3 "$script_dir/run-pipeline.py" \
+      "$prompt" \
+      "$output_mode" \
+      "$model_tier" \
+      "$effort" \
+      "$permission_mode" \
+      "$mcp_mode" \
+      "$context_mode" \
+      "$subagent_mode" \
+      "$@"
+    ;;
+esac

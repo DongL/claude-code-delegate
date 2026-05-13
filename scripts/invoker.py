@@ -13,6 +13,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from logger import get_logger
+
+logger = get_logger("invoker")
 
 CLAUDE_ENV_KEYS = (
     "ANTHROPIC_BASE_URL",
@@ -97,6 +100,7 @@ def prepare_isolated_claude_config(child_env: dict[str, str]) -> dict[str, str]:
 
     updated_env = dict(child_env)
     updated_env["CLAUDE_CONFIG_DIR"] = str(config_dir)
+    logger.debug("isolated config prepared", config_dir=str(config_dir))
     return updated_env
 
 
@@ -264,6 +268,7 @@ def start_heartbeat(
             parts.append(f"effort={effort}")
             parts.append(f"mcp={mcp_mode}")
             parts.append(f"mode={output_mode}")
+            parts.append("remaining=unlimited")
 
             print(
                 f"Claude Code still running: {' '.join(parts)}",
@@ -295,7 +300,123 @@ def start_heartbeat(
     return t
 
 
+def launch_claude_async(
+    config: InvokerConfig,
+    stdout_path: str,
+    stderr_path: str,
+) -> "subprocess.Popen[Any]":
+    """Launch Claude Code in the background with stdout/stderr written to files.
+
+    Returns the Popen object immediately.  The caller is responsible for
+    waiting on the process and collecting results from the files.
+    """
+    args: list[str] = [
+        "claude",
+        "-p",
+        "--model", config.model,
+        "--effort", config.effort,
+        "--permission-mode", config.permission_mode,
+    ]
+
+    if config.subagent_mode == "off":
+        args.extend(["--disallowedTools", "Task Agent"])
+
+    source_path: str | None = None
+    if config.mcp_mode not in ("all", "none"):
+        source_path = resolve_mcp_config_path(config.mcp_mode)
+
+    mcp_args, _ = generate_mcp_config(config.mcp_mode, source_path)
+    child_env = prepare_isolated_claude_config(load_claude_settings_env())
+
+    if config.output_mode == "stream":
+        args.extend(mcp_args)
+        args.extend(["--verbose", "--output-format", "stream-json", "--include-partial-messages"])
+    else:
+        args.extend(mcp_args)
+        args.extend(["--output-format", "json"])
+
+    stdout_fh = open(stdout_path, "w", encoding="utf-8")
+    stderr_fh = open(stderr_path, "w", encoding="utf-8")
+
+    return subprocess.Popen(
+        [*args, config.prompt],
+        stdout=stdout_fh,
+        stderr=stderr_fh,
+        env=child_env,
+        text=True,
+    )
+
+
+def supervise_job(job_id: str) -> int:
+    """Supervise a job: launch Claude Code, wait, then write result.json.
+
+    Reads config.json from the job directory, launches Claude Code via
+    launch_claude_async, waits for the process, and records result.json
+    with the real returncode.  The meta.json pid is updated once the
+    child process starts.
+    """
+    from job_manager import (
+        _job_dir,
+        read_job_config,
+        read_job_meta,
+        write_job_result,
+    )
+
+    config_data = read_job_config(job_id)
+    if config_data is None:
+        logger.error("no config for job", job_id=job_id)
+        return 1
+
+    config = InvokerConfig(**config_data)
+
+    job_dir = _job_dir(job_id)
+    stdout_path = str(job_dir / "stdout.txt")
+    stderr_path = str(job_dir / "stderr.txt")
+
+    process = launch_claude_async(config, stdout_path, stderr_path)
+
+    meta = read_job_meta(job_id)
+    if meta:
+        meta["pid"] = process.pid
+        (job_dir / "meta.json").write_text(
+            json.dumps(meta, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+    logger.info(
+        "supervisor waiting for claude",
+        job_id=job_id,
+        pid=process.pid,
+    )
+    process.wait()
+
+    stdout = ""
+    stderr = ""
+    stdout_file = job_dir / "stdout.txt"
+    stderr_file = job_dir / "stderr.txt"
+    if stdout_file.exists():
+        stdout = stdout_file.read_text(encoding="utf-8")
+    if stderr_file.exists():
+        stderr = stderr_file.read_text(encoding="utf-8")
+
+    write_job_result(job_id, process.returncode, stdout, stderr)
+    logger.info(
+        "supervisor recorded result",
+        job_id=job_id,
+        returncode=process.returncode,
+    )
+
+    return process.returncode
+
+
 def invoke_claude(config: InvokerConfig) -> subprocess.CompletedProcess[Any]:
+    logger.info(
+        "starting claude invocation",
+        model=config.model,
+        effort=config.effort,
+        mcp_mode=config.mcp_mode,
+    )
+
     args: list[str] = [
         "claude",
         "-p",

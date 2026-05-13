@@ -11,9 +11,20 @@ from typing import Any
 from classifier import Classification, classify_prompt, FLASH_MODEL, PRO_MODEL
 from envelope_builder import build_prepared_prompt
 from invoker import InvokerConfig, invoke_claude
+from job_manager import (
+    create_job_id,
+    create_job_meta,
+    find_active_lease,
+    get_job_status,
+    get_jobs_dir,
+    persist_job_config,
+    write_job_result,
+)
+from logger import get_logger
 from profile_logger import append_profile_record, build_profile_record
 
 _scripts_dir = os.path.dirname(os.path.abspath(__file__))
+logger = get_logger("pipeline")
 
 
 def _import_hyphenated(name: str):
@@ -90,6 +101,12 @@ def run_delegation_pipeline(
 ) -> DelegationResult:
     # 1. Classification
     classification = classify_prompt(prompt)
+    logger.debug(
+        "classification result",
+        task_type=classification.task_type,
+        model=classification.model,
+        effort=classification.effort,
+    )
 
     # 2. Resolve overrides — env var consulted only when parameter is "auto"
     model = _resolve_model(model_tier, classification)
@@ -148,6 +165,15 @@ def run_delegation_pipeline(
         inactivity_timeout=inactivity_timeout,
     )
 
+    logger.debug(
+        "invocation config",
+        model=model,
+        effort=final_effort,
+        permission_mode=final_permission,
+        mcp_mode=resolved_mcp,
+        output_mode=output_mode,
+    )
+
     # 5. Invoke Claude Code (heartbeat/monitor runs inside invoke_claude)
     try:
         result = invoke_claude(config)
@@ -163,8 +189,16 @@ def run_delegation_pipeline(
             }
         else:
             parsed = parse_compact_output(result.stdout)
-    finally:
-        pass  # daemon threads (reader, monitor) clean up automatically
+
+        if result.returncode != 0:
+            logger.error(
+                "claude invocation failed",
+                returncode=result.returncode,
+                stderr_tail=result.stderr[-500:] if result.stderr else "",
+            )
+    except Exception as exc:
+        logger.error("claude invocation exception", error=str(exc))
+        raise
 
     # 8. Profile logging
     profile_log = os.environ.get("CLAUDE_DELEGATE_PROFILE_LOG")
@@ -207,3 +241,155 @@ def run_delegation_pipeline(
         original_prompt_chars=original_prompt_chars,
         prepared_prompt_chars=prepared_prompt_chars,
     )
+
+
+def start_delegation_async(
+    prompt: str,
+    *,
+    model_tier: str = "auto",
+    effort: str = "auto",
+    permission_mode: str = "auto",
+    mcp_mode: str = "all",
+    context_mode: str = "auto",
+    subagent_mode: str = "off",
+    output_mode: str = "quiet",
+) -> dict[str, Any]:
+    """Start an async delegation.  Returns a dict with job_id and status.
+
+    Enforces single-flight: if another job is already running the active
+    lease is returned instead of starting a duplicate delegation.
+    """
+    existing = find_active_lease()
+    if existing is not None:
+        return {
+            "status": "lease_held",
+            "job_id": existing["job_id"],
+            "pid": existing.get("pid"),
+            "started_at": existing.get("started_at", ""),
+            "model": existing.get("model", ""),
+            "effort": existing.get("effort", ""),
+            "message": (
+                "Another delegation job is running. "
+                "Poll its status or wait for completion. "
+                "No retry, reduced correction plan, or second delegation "
+                "is allowed while the original job is still running."
+            ),
+        }
+
+    classification = classify_prompt(prompt)
+    logger.debug(
+        "async classification",
+        task_type=classification.task_type,
+        model=classification.model,
+    )
+
+    model = _resolve_model(model_tier, classification)
+    resolved_effort = effort if effort != "auto" else os.environ.get("CLAUDE_DELEGATE_EFFORT", "auto")
+    final_effort = _resolve_auto(resolved_effort, classification.effort)
+    resolved_permission = permission_mode if permission_mode != "auto" else os.environ.get("CLAUDE_DELEGATE_PERMISSION_MODE", "auto")
+    final_permission = _resolve_auto(resolved_permission, classification.permission_mode)
+    resolved_mcp = mcp_mode if mcp_mode != "all" else os.environ.get("CLAUDE_DELEGATE_MCP_MODE", "all")
+    resolved_subagents = subagent_mode if subagent_mode != "off" else (
+        "on" if os.environ.get("CLAUDE_DELEGATE_SUBAGENTS", "").lower() == "on" else "off"
+    )
+
+    final_prompt, _ = build_prepared_prompt(prompt, classification, context_mode)
+
+    config = InvokerConfig(
+        model=model,
+        effort=final_effort,
+        permission_mode=final_permission,
+        mcp_mode=resolved_mcp,
+        subagent_mode=resolved_subagents,
+        heartbeat_seconds=0,
+        output_mode=output_mode,
+        prompt=final_prompt,
+        inactivity_timeout=0,
+    )
+
+    import subprocess
+    import sys
+
+    job_id = create_job_id()
+    jobs_dir = get_jobs_dir()
+    job_dir = jobs_dir / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write config before launching supervisor (supervisor reads config.json)
+    from dataclasses import asdict
+
+    persist_job_config(job_id, asdict(config))
+
+    run_pipeline = os.path.join(_scripts_dir, "run-pipeline.py")
+
+    supervisor_proc = subprocess.Popen(
+        [sys.executable, run_pipeline, "--supervise", job_id],
+        start_new_session=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    # Create meta.json with the supervisor PID so find_active_lease can
+    # identify this job as alive before the supervisor replaces it with
+    # the Claude child PID.
+    create_job_meta(
+        job_id=job_id,
+        pid=supervisor_proc.pid,
+        prompt=final_prompt,
+        model=model,
+        effort=final_effort,
+        permission_mode=final_permission,
+        mcp_mode=resolved_mcp,
+        output_mode=output_mode,
+    )
+
+    logger.info(
+        "async job started with detached supervisor",
+        job_id=job_id,
+        pid=supervisor_proc.pid,
+        model=model,
+        effort=final_effort,
+    )
+
+    return {
+        "status": "running",
+        "job_id": job_id,
+        "pid": supervisor_proc.pid,
+        "started_at": "just now",
+        "model": model,
+        "effort": final_effort,
+        "lease_active": True,
+    }
+
+
+def poll_delegation_status(job_id: str) -> dict[str, Any]:
+    """Poll the status of an async delegation job.
+
+    If completed, parses the stdout as compact JSON output and includes
+    the parsed result.  If running, includes file-size and tail info.
+    """
+    status = get_job_status(job_id)
+
+    if status["status"] == "completed":
+        try:
+            parsed = parse_compact_output(status["stdout"])
+            return {
+                "status": "completed",
+                "job_id": job_id,
+                "result": parsed.get("result", ""),
+                "usage": parsed.get("usage", {}),
+                "cost_usd": parsed.get("cost_usd", 0.0),
+                "terminal_reason": parsed.get("terminal_reason", ""),
+                "model": parsed.get("model", ""),
+                "effort": parsed.get("effort", ""),
+            }
+        except Exception:
+            return {
+                "status": "failed",
+                "job_id": job_id,
+                "returncode": status.get("returncode", -1),
+                "stderr_tail": "completed output could not be parsed",
+            }
+
+    return status

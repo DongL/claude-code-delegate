@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Thin CLI wrapper around pipeline.run_delegation_pipeline() for shell invocation."""
+"""Thin CLI wrapper around pipeline.run_delegation_pipeline() for shell invocation.
+
+Also supports --start (async launch with lease) and --poll <job_id> modes.
+"""
 
 from __future__ import annotations
 
@@ -8,13 +11,107 @@ import os
 import sys
 
 
+def _print_usage() -> None:
+    print(
+        "Usage: run-pipeline.py <prompt> <output_mode> <model_tier> <effort> "
+        "<permission_mode> <mcp_mode> <context_mode> <subagent_mode>",
+        file=sys.stderr,
+    )
+    print(
+        "       run-pipeline.py --start <prompt> <output_mode> <model_tier> <effort> "
+        "<permission_mode> <mcp_mode> <context_mode> <subagent_mode>",
+        file=sys.stderr,
+    )
+    print(
+        "       run-pipeline.py --poll <job_id>",
+        file=sys.stderr,
+    )
+
+
 def main() -> int:
+    if len(sys.argv) < 2:
+        _print_usage()
+        return 2
+
+    scripts_dir = os.path.dirname(os.path.abspath(__file__))
+    sys.path.insert(0, scripts_dir)
+
+    if sys.argv[1] == "--start":
+        return _handle_start()
+    elif sys.argv[1] == "--poll":
+        return _handle_poll()
+    elif sys.argv[1] == "--supervise":
+        return _handle_supervise()
+    else:
+        return _handle_exec()
+
+
+def _handle_start() -> int:
+    from pipeline import start_delegation_async
+
     if len(sys.argv) < 3:
-        print(
-            "Usage: run-pipeline.py <prompt> <output_mode> <model_tier> <effort> "
-            "<permission_mode> <mcp_mode> <context_mode> <subagent_mode>",
-            file=sys.stderr,
-        )
+        print("Missing prompt for --start", file=sys.stderr)
+        return 2
+
+    prompt = sys.argv[2]
+    output_mode = sys.argv[3] if len(sys.argv) > 3 else "quiet"
+    model_tier = sys.argv[4] if len(sys.argv) > 4 else "auto"
+    effort = sys.argv[5] if len(sys.argv) > 5 else "auto"
+    permission_mode = sys.argv[6] if len(sys.argv) > 6 else "auto"
+    mcp_mode = sys.argv[7] if len(sys.argv) > 7 else "all"
+    context_mode = sys.argv[8] if len(sys.argv) > 8 else "auto"
+    subagent_mode = sys.argv[9] if len(sys.argv) > 9 else "off"
+
+    result = start_delegation_async(
+        prompt=prompt,
+        model_tier=model_tier,
+        effort=effort,
+        permission_mode=permission_mode,
+        mcp_mode=mcp_mode,
+        context_mode=context_mode,
+        subagent_mode=subagent_mode,
+        output_mode=output_mode,
+    )
+
+    print(json.dumps(result, ensure_ascii=False))
+    # Exit 0 for running and lease_held; the caller uses the JSON status field
+    return 0
+
+
+def _handle_poll() -> int:
+    from pipeline import poll_delegation_status
+
+    if len(sys.argv) < 3 or not sys.argv[2]:
+        print("Missing job_id for --poll", file=sys.stderr)
+        return 2
+
+    job_id = sys.argv[2]
+    result = poll_delegation_status(job_id)
+
+    print(json.dumps(result, ensure_ascii=False))
+    if result.get("status") == "not_found":
+        return 1
+    return 0
+
+
+def _handle_supervise() -> int:
+    """Internal: supervise a job to completion and write result.json."""
+    from invoker import supervise_job
+
+    if len(sys.argv) < 3 or not sys.argv[2]:
+        print("Missing job_id for --supervise", file=sys.stderr)
+        return 2
+
+    job_id = sys.argv[2]
+    rc = supervise_job(job_id)
+    return rc
+
+
+def _handle_exec() -> int:
+    from pipeline import run_delegation_pipeline
+
+    if len(sys.argv) < 3:
+        _print_usage()
         return 2
 
     prompt = sys.argv[1]
@@ -25,12 +122,6 @@ def main() -> int:
     mcp_mode = sys.argv[6] if len(sys.argv) > 6 else "all"
     context_mode = sys.argv[7] if len(sys.argv) > 7 else "auto"
     subagent_mode = sys.argv[8] if len(sys.argv) > 8 else "off"
-
-    # Ensure scripts dir is on path for imports
-    scripts_dir = os.path.dirname(os.path.abspath(__file__))
-    sys.path.insert(0, scripts_dir)
-
-    from pipeline import run_delegation_pipeline
 
     result = run_delegation_pipeline(
         prompt=prompt,
