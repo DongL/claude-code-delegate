@@ -10,7 +10,7 @@ from typing import Any
 
 from classifier import Classification, classify_prompt, FLASH_MODEL, PRO_MODEL
 from envelope_builder import build_prepared_prompt
-from invoker import InvokerConfig, invoke_claude, start_heartbeat
+from invoker import InvokerConfig, invoke_claude
 from profile_logger import append_profile_record, build_profile_record
 
 _scripts_dir = os.path.dirname(os.path.abspath(__file__))
@@ -128,6 +128,14 @@ def run_delegation_pipeline(
     except (ValueError, TypeError):
         pass
 
+    inactivity_timeout = 0
+    try:
+        inactivity_timeout = int(
+            os.environ.get("CLAUDE_DELEGATE_INACTIVITY_TIMEOUT_SECONDS", "0")
+        )
+    except (ValueError, TypeError):
+        pass
+
     config = InvokerConfig(
         model=model,
         effort=final_effort,
@@ -137,20 +145,14 @@ def run_delegation_pipeline(
         heartbeat_seconds=heartbeat_seconds,
         output_mode=output_mode,
         prompt=final_prompt,
+        inactivity_timeout=inactivity_timeout,
     )
 
-    # 5. Heartbeat
-    heartbeat = start_heartbeat(
-        config.heartbeat_seconds, model, final_effort, resolved_mcp, output_mode
-    )
-    if heartbeat:
-        heartbeat.start()
-
+    # 5. Invoke Claude Code (heartbeat/monitor runs inside invoke_claude)
     try:
-        # 6. Invoke Claude Code
         result = invoke_claude(config)
 
-        # 7. Parse output
+        # 6. Parse output
         if output_mode == "stream":
             parsed = {
                 "result": result.stdout,
@@ -162,7 +164,7 @@ def run_delegation_pipeline(
         else:
             parsed = parse_compact_output(result.stdout)
     finally:
-        pass  # daemon thread cleans up automatically
+        pass  # daemon threads (reader, monitor) clean up automatically
 
     # 8. Profile logging
     profile_log = os.environ.get("CLAUDE_DELEGATE_PROFILE_LOG")
