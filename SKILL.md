@@ -21,7 +21,7 @@ Use this workflow when the user wants an orchestrator to own planning/review whi
 - [ ] Show the exact orchestrator-authored prompt to the user BEFORE invocation. This is a hard gate: the user must see what will be sent to Claude Code before execution starts. Present the prompt as a normal assistant message — not through a shell command, tool output, or hidden artifact.
 - [ ] If the prompt contains secrets, private user data, or excessive copied context, show a redacted version and state what was redacted. Never redact material scope, ownership boundaries, prohibited actions, or verification commands.
 - [ ] Invoke only through `run-claude-code.sh` via the resolver function.
-- [ ] Default to quiet/compact mode (`--quiet`). Streaming is a common violation — reserve `--stream` for wrapper/API/permission diagnosis only. Before re-streaming, check stderr heartbeat — if alive, executor is running; no need to restart.
+- [ ] Default to quiet/compact mode (`--quiet`). This preserves orchestrator tokens and produces a compact final report. Streaming output is noisy, wastes context window, and should only be used for wrapper/API/permission diagnosis. Before re-streaming, check stderr heartbeat — if alive, executor is running; no need to restart.
 - [ ] The pipeline auto-classifies model tier and effort from the prompt. If the orchestrator knows the task is simpler or harder than keyword matching suggests, override with `--pro` / `--flash` / `--effort`. Prefer explicit overrides for non-trivial tasks.
 - [ ] Default `--mcp all` for general tasks. Use `--mcp jira` when the executor needs Jira MCP tools (issue queries, transitions, comments). Use `--mcp none` for isolated execution without MCP servers.
 - [ ] Include prompt requirements per the Prompt Requirements section.
@@ -43,15 +43,18 @@ The `--start` / `--poll` modes enforce single-flight lease semantics to prevent 
 #### Compact Gate
 - [ ] Wait for the wrapper to complete.
 - [ ] Show the compact result: changed files, verification results, token usage/cost, terminal status.
+- [ ] **STOP.** The next two gates (Review, Report) are mandatory and must not be skipped even for read-only tasks. For read-only tasks where `git diff --stat` is empty, note that explicitly.
 
 #### Review Gate
+- [ ] Show Claude Code's output to the user before giving the orchestrator's review.
 - [ ] Run `git diff --stat` and inspect relevant diffs locally.
 - [ ] Run focused tests or verification commands.
-- [ ] Do not accept unreviewed changes.
+- [ ] Do not accept unreviewed changes just because Claude Code completed successfully.
 
 #### Correction Gate
 - [ ] If the diff is wrong or incomplete, show a targeted correction plan to the user.
 - [ ] Re-delegate the correction through Claude Code using the same wrapper invocation.
+- [ ] Show the correction pass output before the next iteration or final review.
 - [ ] Surface results after each correction pass so the user can intervene if convergence stalls.
 
 #### Report Gate
@@ -60,10 +63,6 @@ The `--start` / `--poll` modes enforce single-flight lease semantics to prevent 
 ### Local Implementation Ban
 
 While this skill is active, the orchestrator may inspect, plan, and review locally but must not make implementation edits locally. Every code change must flow through Claude Code via the wrapper. The orchestrator may only edit locally if the user explicitly authorizes a Codex takeover.
-
-### Quiet/Compact Default
-
-Always prefer `--quiet` mode. This preserves orchestrator tokens and produces a compact final report. Streaming output is noisy, wastes context window, and should only be used for wrapper/API/permission diagnosis.
 
 ## Invocation
 
@@ -152,41 +151,25 @@ The shell wrapper remains the primary transport and does not require the `mcp` p
 
 The prompt sent to Claude Code must include:
 
-- The user's goal.
-- The concrete plan to execute.
-- Ownership boundaries: files/modules it may touch.
-- A warning not to revert unrelated user changes.
-- A recommendation to apply Karpathy-style coding guidelines if available (e.g., `/andrej-karpathy-skills:karpathy-guidelines` in Codex). Key principles: make surgical changes, prefer boring code, avoid overcomplication, surface assumptions, and define verifiable success criteria before starting.
-- Verification commands to run.
-- A request to report changed files and command results.
-
-Before invoking Claude Code, show the user the concrete implementation plan the orchestrator authored. This should be concise but specific enough to make ownership boundaries and verification commands visible.
+- [ ] The user's goal.
+- [ ] The concrete plan to execute.
+- [ ] Ownership boundaries: files/modules it may touch.
+- [ ] A warning not to revert unrelated user changes.
+- [ ] A recommendation to apply Karpathy-style coding guidelines if available. Key principles: surgical changes, prefer boring code, avoid overcomplication, surface assumptions, define verifiable success criteria.
+- [ ] Verification commands to run.
+- [ ] A request to report changed files and command results.
 
 Invoke the wrapper directly without adding `timeout`. If Claude Code appears silent, re-run with `--stream` and inspect the wrapper's stream-json events before assuming it is stuck. For long-running tasks, prefer `--start` / `--poll` — the lease prevents duplicate delegations and the orchestrator can poll for progress without assuming the executor is stuck.
 
 After Claude Code returns, show the user Claude Code's output. In quiet mode, show the compact final report. In stream mode, prefer the final result block when it is concise; if the stream output is noisy, summarize the key lines but preserve changed files, command results, errors, and any stated caveats.
 
-## Review Requirements
-
-After Claude Code returns:
-
-1. Show Claude Code's output to the user before giving the orchestrator's review.
-2. Run `git diff --stat` and inspect relevant diffs.
-3. Run focused tests or checks.
-4. If the diff is wrong or incomplete, show the targeted correction plan, then send a correction prompt using the same wrapper invocation. Repeat if needed, surfacing results after each pass.
-5. Show the correction pass output before the next iteration or final review.
-6. Do not accept unreviewed changes just because Claude Code completed successfully.
-
 ## Issue Tracker Integration
 
 When delegating Jira or issue tracker work, apply Jira-safe plain text formatting (no Markdown). See [docs/jira-workflow.md](docs/jira-workflow.md) for details and the `scripts/jira-safe-text.py` utility.
 
-## Known Failure Mode
+## Known Failure Modes
 
-Plain `claude -p` with default permissions can appear to hang because Claude Code is waiting on permission requests. The wrapper default `bypassPermissions` avoids this entirely by suppressing all permission prompts. For debugging sessions where you want to observe tool commands before they run, use the `--interactive` flag (which sets `acceptEdits` — auto-accepts file edits but prompts on Bash/tool commands).
-
-During long-running delegations, the pipeline prints a heartbeat to stderr every 30 seconds (`Claude Code still running: model=... effort=...`). If Claude Code appears silent, check stderr first — an active heartbeat means the executor is running, its absence means it has stopped or crashed. Set `CLAUDE_DELEGATE_HEARTBEAT_SECONDS=0` to disable the heartbeat (e.g. for CI pipelines).
-
-Another common failure: the orchestrator assumes Claude Code is stuck, kills or abandons it, and starts a reduced correction plan — wasting tokens while the original Claude Code may still be working. The `--start` / `--poll` modes prevent this: a running job holds an execution lease, and the wrapper refuses to start a second delegation while the first is still running. The orchestrator should poll with `--poll <job_id>` rather than restarting.
-
-Provider or org/auth access errors usually mean Claude Code is not currently switched to a provider that can serve `deepseek-v4-pro[1m]`, or the provider token in `~/.claude/settings.json` is malformed/expired. Confirm the configured `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and model values without printing secret token contents.
+- **Apparent hang**: `claude -p` with default permissions blocks on permission prompts. The wrapper defaults to `bypassPermissions` to avoid this. Use `--interactive` (acceptEdits) to observe tool commands before they run.
+- **Silent executor**: During long delegations, the pipeline prints a heartbeat to stderr every 30s. If Claude Code appears silent, check stderr first — an active heartbeat means it's running. Set `CLAUDE_DELEGATE_HEARTBEAT_SECONDS=0` to disable (e.g., CI).
+- **Premature kill/retry**: The orchestrator may assume Claude Code is stuck and start a reduced correction plan. `--start` / `--poll` prevents this via single-flight lease. Poll with `--poll <job_id>` rather than restarting.
+- **Provider/auth errors**: Usually means the provider can't serve the model, or the token is expired. Confirm `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and model values without printing secrets.
