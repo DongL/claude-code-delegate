@@ -194,6 +194,8 @@ Dollar savings vary by provider cache pricing, model tier, task size, and cache 
 | --mcp all\|none\|jira\|linear\|sequential-thinking | CLAUDE_DELEGATE_MCP_MODE | MCP server loading |
 | --full-context | CLAUDE_DELEGATE_CONTEXT_MODE | Skip prompt template wrapping |
 | --allow-subagents | CLAUDE_DELEGATE_SUBAGENTS | Allow Claude Code to spawn subagents |
+| --opencode | CLAUDE_DELEGATE_EXECUTOR | Shorthand for --executor opencode |
+| --executor claude-code\|opencode | CLAUDE_DELEGATE_EXECUTOR | Executor backend selection |
 
 Env var equivalents and full details: [docs/shell-wrapper-reference.md](docs/shell-wrapper-reference.md). Permission modes and security: [SECURITY.md](SECURITY.md).
 
@@ -211,6 +213,7 @@ Env var equivalents and full details: [docs/shell-wrapper-reference.md](docs/she
 | `scripts/profile_logger.py` | Profile record construction and JSONL append |
 | `scripts/aggregate-profile-log.py` | Profile log aggregation and summarization |
 | `scripts/jira-safe-text.py` | Markdown → Jira-safe plain text converter |
+| `scripts/opencode_invoker.py` | OpenCode executor — subprocess launcher and heartbeat |
 | `tests/run_tests.sh` | Test runner — pipeline, invocation, and compaction |
 | `docs/shell-wrapper-reference.md` | Full CLI flag/env-var reference |
 | `docs/jira-workflow.md` | Jira-specific delegation conventions |

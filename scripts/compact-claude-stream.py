@@ -28,14 +28,20 @@ def _fmt_usage(usage: dict[str, Any]) -> str:
 
 
 def parse_compact_output(raw_json: str) -> dict[str, Any]:
-    """Parse raw Claude Code JSON output into a structured dict.
+    """Parse raw JSON output into a structured dict.
 
-    Handles both single JSON objects and newline-delimited stream-json.
+    Handles two formats:
+    - Claude Code: single JSON or newline-delimited stream-json.
+    - OpenCode: event stream with text, step_finish, and error events.
     Returns result text, usage, cost, model, effort, and other metadata.
     """
     init: dict[str, Any] | None = None
     result: dict[str, Any] | None = None
     errors: list[str] = []
+    opencode_texts: list[str] = []
+    opencode_usage: dict[str, Any] = {}
+    opencode_cost: float = 0.0
+    opencode_is_error: bool = False
 
     events: list[dict[str, Any]] = []
     try:
@@ -67,6 +73,46 @@ def parse_compact_output(raw_json: str) -> dict[str, Any]:
             result = event
         elif event.get("is_error") is True:
             errors.append(json.dumps(event, ensure_ascii=False)[:1000])
+        elif event_type == "text":
+            part = event.get("part", {})
+            if isinstance(part, dict) and part.get("type") == "text":
+                text = part.get("text", "")
+                if text:
+                    opencode_texts.append(text)
+        elif event_type == "step_finish":
+            part = event.get("part", {})
+            if isinstance(part, dict):
+                tokens = part.get("tokens")
+                if isinstance(tokens, dict):
+                    mapped: dict[str, int] = {}
+                    if "input" in tokens:
+                        mapped["input_tokens"] = tokens["input"]
+                    if "output" in tokens:
+                        mapped["output_tokens"] = tokens["output"]
+                    cache_info = tokens.get("cache")
+                    if isinstance(cache_info, dict):
+                        read_val = cache_info.get("read", 0)
+                        if isinstance(read_val, int) and read_val > 0:
+                            mapped["cache_read_input_tokens"] = read_val
+                    opencode_usage = mapped
+                cost = part.get("cost")
+                if isinstance(cost, (int, float)):
+                    opencode_cost = cost
+                result = {"result": "", "usage": opencode_usage, "total_cost_usd": opencode_cost}
+        elif event_type == "error":
+            err_data = event.get("error", {})
+            msg = ""
+            if isinstance(err_data, dict):
+                inner = err_data.get("data", {})
+                if isinstance(inner, dict):
+                    msg = inner.get("message", "")
+                if not msg:
+                    msg = err_data.get("message", "")
+            if msg:
+                errors.append(msg)
+            opencode_is_error = True
+
+    is_opencode = bool(opencode_texts) or opencode_is_error or bool(opencode_usage)
 
     model = (init or {}).get("model") or os.environ.get("CLAUDE_DELEGATE_OBSERVED_MODEL")
     effort = (init or {}).get("effort") or os.environ.get("CLAUDE_DELEGATE_OBSERVED_EFFORT")
@@ -78,10 +124,16 @@ def parse_compact_output(raw_json: str) -> dict[str, Any]:
     )
 
     result_text = (result or {}).get("result") or ""
-    usage = (result or {}).get("usage")
-    cost_usd = (result or {}).get("total_cost_usd", 0.0)
+    if is_opencode:
+        result_text = "".join(opencode_texts)
+        cost_usd = opencode_cost
+        usage = opencode_usage if opencode_usage else (result or {}).get("usage")
+    else:
+        usage = (result or {}).get("usage")
+        cost_usd = (result or {}).get("total_cost_usd", 0.0)
+
+    is_error = bool((result or {}).get("is_error")) or opencode_is_error
     terminal_reason = (result or {}).get("terminal_reason") or ""
-    is_error = bool((result or {}).get("is_error"))
     cwd = (init or {}).get("cwd") or os.environ.get("CLAUDE_DELEGATE_OBSERVED_CWD")
 
     return {
@@ -96,7 +148,7 @@ def parse_compact_output(raw_json: str) -> dict[str, Any]:
         "cwd": cwd,
         "is_error": is_error,
         "has_init": init is not None,
-        "has_result": result is not None,
+        "has_result": bool(opencode_texts) or result is not None,
         "errors": errors,
     }
 
@@ -145,8 +197,10 @@ def main() -> int:
         )
     )
 
+    executor_name = os.environ.get("CLAUDE_DELEGATE_EXECUTOR_NAME", "Claude Code")
+
     if model or effort or permission_mode or mcp_mode or has_profile or cwd:
-        print("Claude Code")
+        print(executor_name)
         if model:
             print(f"- model: {model}")
         if effort:

@@ -14,12 +14,12 @@ import sys
 def _print_usage() -> None:
     print(
         "Usage: run-pipeline.py <prompt> <output_mode> <model_tier> <effort> "
-        "<permission_mode> <mcp_mode> <context_mode> <subagent_mode>",
+        "<permission_mode> <mcp_mode> <context_mode> <subagent_mode> <executor>",
         file=sys.stderr,
     )
     print(
         "       run-pipeline.py --start <prompt> <output_mode> <model_tier> <effort> "
-        "<permission_mode> <mcp_mode> <context_mode> <subagent_mode>",
+        "<permission_mode> <mcp_mode> <context_mode> <subagent_mode> <executor>",
         file=sys.stderr,
     )
     print(
@@ -61,6 +61,7 @@ def _handle_start() -> int:
     mcp_mode = sys.argv[7] if len(sys.argv) > 7 else "all"
     context_mode = sys.argv[8] if len(sys.argv) > 8 else "auto"
     subagent_mode = sys.argv[9] if len(sys.argv) > 9 else "off"
+    executor = sys.argv[10] if len(sys.argv) > 10 else "claude-code"
 
     result = start_delegation_async(
         prompt=prompt,
@@ -71,6 +72,7 @@ def _handle_start() -> int:
         context_mode=context_mode,
         subagent_mode=subagent_mode,
         output_mode=output_mode,
+        executor=executor,
     )
 
     print(json.dumps(result, ensure_ascii=False))
@@ -122,6 +124,7 @@ def _handle_exec() -> int:
     mcp_mode = sys.argv[6] if len(sys.argv) > 6 else "all"
     context_mode = sys.argv[7] if len(sys.argv) > 7 else "auto"
     subagent_mode = sys.argv[8] if len(sys.argv) > 8 else "off"
+    executor = sys.argv[9] if len(sys.argv) > 9 else "claude-code"
 
     result = run_delegation_pipeline(
         prompt=prompt,
@@ -132,11 +135,13 @@ def _handle_exec() -> int:
         context_mode=context_mode,
         subagent_mode=subagent_mode,
         output_mode=output_mode,
+        executor=executor,
     )
 
     # Print compact report (same format as compact-claude-stream.py main())
+    executor_name = os.environ.get("CLAUDE_DELEGATE_EXECUTOR_NAME", "Claude Code")
     if result.model or result.effort or result.permission_mode or result.mcp_mode:
-        print("Claude Code")
+        print(executor_name)
         if result.model:
             print(f"- model: {result.model}")
         if result.effort:

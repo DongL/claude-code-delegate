@@ -37,6 +37,7 @@ class InvokerConfig:
     heartbeat_seconds: int
     output_mode: str
     prompt: str
+    executor: str = "claude-code"
     inactivity_timeout: int = 0
 
 
@@ -305,11 +306,40 @@ def launch_claude_async(
     stdout_path: str,
     stderr_path: str,
 ) -> "subprocess.Popen[Any]":
-    """Launch Claude Code in the background with stdout/stderr written to files.
+    """Launch the configured executor in the background."""
+    if config.executor == "opencode":
+        return _launch_opencode_async(config, stdout_path, stderr_path)
+    return _launch_claude_code_async(config, stdout_path, stderr_path)
 
-    Returns the Popen object immediately.  The caller is responsible for
-    waiting on the process and collecting results from the files.
-    """
+
+def _launch_opencode_async(
+    config: InvokerConfig,
+    stdout_path: str,
+    stderr_path: str,
+) -> "subprocess.Popen[Any]":
+    from opencode_invoker import (
+        OpenCodeInvokerConfig,
+        launch_opencode_async as _launch,
+    )
+
+    opencode_config = OpenCodeInvokerConfig(
+        model=config.model,
+        permission_mode=config.permission_mode,
+        mcp_mode=config.mcp_mode,
+        subagent_mode=config.subagent_mode,
+        heartbeat_seconds=config.heartbeat_seconds,
+        output_mode=config.output_mode,
+        prompt=config.prompt,
+        inactivity_timeout=config.inactivity_timeout,
+    )
+    return _launch(opencode_config, stdout_path, stderr_path)
+
+
+def _launch_claude_code_async(
+    config: InvokerConfig,
+    stdout_path: str,
+    stderr_path: str,
+) -> "subprocess.Popen[Any]":
     args: list[str] = [
         "claude",
         "-p",
@@ -410,6 +440,32 @@ def supervise_job(job_id: str) -> int:
 
 
 def invoke_claude(config: InvokerConfig) -> subprocess.CompletedProcess[Any]:
+    if config.executor == "opencode":
+        return _invoke_opencode(config)
+    return _invoke_claude_code(config)
+
+
+def _invoke_opencode(config: InvokerConfig) -> subprocess.CompletedProcess[Any]:
+    """Route to OpenCode executor."""
+    from opencode_invoker import (
+        OpenCodeInvokerConfig,
+        invoke_opencode as _invoke,
+    )
+
+    opencode_config = OpenCodeInvokerConfig(
+        model=config.model,
+        permission_mode=config.permission_mode,
+        mcp_mode=config.mcp_mode,
+        subagent_mode=config.subagent_mode,
+        heartbeat_seconds=config.heartbeat_seconds,
+        output_mode=config.output_mode,
+        prompt=config.prompt,
+        inactivity_timeout=config.inactivity_timeout,
+    )
+    return _invoke(opencode_config)
+
+
+def _invoke_claude_code(config: InvokerConfig) -> subprocess.CompletedProcess[Any]:
     logger.info(
         "starting claude invocation",
         model=config.model,

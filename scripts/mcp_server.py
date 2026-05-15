@@ -87,6 +87,7 @@ async def delegate_task(
     context_mode: str = "auto",
     allow_subagents: bool = False,
     output_mode: str = "quiet",
+    executor: str = "claude-code",
 ) -> dict[str, Any]:
     """Delegate a task to Claude Code for execution.
 
@@ -104,6 +105,7 @@ async def delegate_task(
         context_mode=context_mode,
         subagent_mode="on" if allow_subagents else "off",
         output_mode=output_mode,
+        executor=executor,
     )
 
     return {

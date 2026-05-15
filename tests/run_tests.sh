@@ -523,6 +523,40 @@ rm -f "$outfile"
 
 test_compact "empty input exit 1" 1 "" ""
 
+# ---- OpenCode event format tests ----
+
+test_compact "opencode text event" 0 "Hello world" \
+  '{"type":"text","timestamp":1000,"part":{"id":"p1","messageID":"m1","sessionID":"s1","type":"text","text":"Hello world"}}'
+
+test_compact "opencode step_finish with usage" 0 "input_tokens=100, output_tokens=10" \
+  '{"type":"step_finish","timestamp":1000,"part":{"id":"p1","reason":"stop","tokens":{"total":110,"input":100,"output":10,"reasoning":0,"cache":{"write":0,"read":0}},"cost":0.01}}'
+
+test_compact "opencode error" 0 "Auth failed" \
+  '{"type":"error","timestamp":1000,"error":{"name":"APIError","data":{"message":"Auth failed"}}}'
+
+test_compact "opencode full conversation" 0 "Hello" \
+  '{"type":"step_start","timestamp":1000,"part":{"id":"p1","type":"step-start"}}
+{"type":"text","timestamp":1001,"part":{"id":"p2","type":"text","text":"Hello"}}
+{"type":"step_finish","timestamp":1002,"part":{"id":"p3","reason":"stop","tokens":{"total":50,"input":40,"output":10},"cost":0.005}}}'
+
+test_compact "opencode full conversation with usage" 0 "input_tokens=40, output_tokens=10" \
+  '{"type":"step_start","timestamp":1000,"part":{"id":"p1","type":"step-start"}}
+{"type":"text","timestamp":1001,"part":{"id":"p2","type":"text","text":"Hi"}}
+{"type":"step_finish","timestamp":1002,"part":{"id":"p3","reason":"stop","tokens":{"total":50,"input":40,"output":10},"cost":0.005}}}'
+
+test_compact "opencode full conversation with cost" 0 "total_cost_usd=0.005000" \
+  '{"type":"step_start","timestamp":1000,"part":{"id":"p1","type":"step-start"}}
+{"type":"text","timestamp":1001,"part":{"id":"p2","type":"text","text":"Hi"}}
+{"type":"step_finish","timestamp":1002,"part":{"id":"p3","reason":"stop","tokens":{"total":50,"input":40,"output":10},"cost":0.005}}}'
+
+test_compact "opencode only step_start yields exit 1" 1 "" \
+  '{"type":"step_start","timestamp":1000,"part":{"id":"p1","type":"step-start"}}'
+
+test_compact "opencode multiple text events concatenated" 0 "Hello world" \
+  '{"type":"text","timestamp":1001,"part":{"id":"p1","type":"text","text":"Hello "}}
+{"type":"text","timestamp":1002,"part":{"id":"p2","type":"text","text":"world"}}
+{"type":"step_finish","timestamp":1003,"part":{"id":"p3","reason":"stop","tokens":{"total":50,"input":40,"output":10},"cost":0.005}}}'
+
 # ---- jira-safe-text.py tests ----
 
 echo ""

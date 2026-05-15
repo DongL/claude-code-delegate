@@ -8,7 +8,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-from classifier import Classification, classify_prompt, FLASH_MODEL, PRO_MODEL
+from classifier import Classification, classify_prompt, FLASH_MODEL, PRO_MODEL, QWEN_MODEL
 from envelope_builder import build_prepared_prompt
 from invoker import InvokerConfig, invoke_claude
 from job_manager import (
@@ -85,6 +85,8 @@ def _resolve_model(model_tier: str, classification: Classification) -> str:
         return FLASH_MODEL
     if model_tier == "pro":
         return PRO_MODEL
+    if model_tier == "qwen":
+        return QWEN_MODEL
     return classification.model
 
 
@@ -98,6 +100,7 @@ def run_delegation_pipeline(
     context_mode: str = "auto",
     subagent_mode: str = "off",
     output_mode: str = "quiet",
+    executor: str = "claude-code",
 ) -> DelegationResult:
     # 1. Classification
     classification = classify_prompt(prompt)
@@ -163,6 +166,7 @@ def run_delegation_pipeline(
         output_mode=output_mode,
         prompt=final_prompt,
         inactivity_timeout=inactivity_timeout,
+        executor=executor,
     )
 
     logger.debug(
@@ -253,6 +257,7 @@ def start_delegation_async(
     context_mode: str = "auto",
     subagent_mode: str = "off",
     output_mode: str = "quiet",
+    executor: str = "claude-code",
 ) -> dict[str, Any]:
     """Start an async delegation.  Returns a dict with job_id and status.
 
@@ -305,6 +310,7 @@ def start_delegation_async(
         output_mode=output_mode,
         prompt=final_prompt,
         inactivity_timeout=0,
+        executor=executor,
     )
 
     import subprocess

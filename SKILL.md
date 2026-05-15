@@ -104,6 +104,8 @@ Then delegate via:
 | `--mcp MODE` | `CLAUDE_DELEGATE_MCP_MODE` | MCP server loading |
 | `--full-context` | `CLAUDE_DELEGATE_CONTEXT_MODE` | Prompt adaptation |
 | `--allow-subagents` | `CLAUDE_DELEGATE_SUBAGENTS` | Subagent control |
+| `--opencode` | `CLAUDE_DELEGATE_EXECUTOR` | Shorthand for `--executor opencode` |
+| `--executor NAME` | `CLAUDE_DELEGATE_EXECUTOR` | Executor backend: `claude-code` (default) or `opencode` |
 
 For the full CLI reference including all flags, env vars, and modes, see [Shell Wrapper CLI Reference](docs/shell-wrapper-reference.md).
 
