@@ -537,17 +537,17 @@ test_compact "opencode error" 0 "Auth failed" \
 test_compact "opencode full conversation" 0 "Hello" \
   '{"type":"step_start","timestamp":1000,"part":{"id":"p1","type":"step-start"}}
 {"type":"text","timestamp":1001,"part":{"id":"p2","type":"text","text":"Hello"}}
-{"type":"step_finish","timestamp":1002,"part":{"id":"p3","reason":"stop","tokens":{"total":50,"input":40,"output":10},"cost":0.005}}}'
+{"type":"step_finish","timestamp":1002,"part":{"id":"p3","reason":"stop","tokens":{"total":50,"input":40,"output":10},"cost":0.005}}'
 
 test_compact "opencode full conversation with usage" 0 "input_tokens=40, output_tokens=10" \
   '{"type":"step_start","timestamp":1000,"part":{"id":"p1","type":"step-start"}}
 {"type":"text","timestamp":1001,"part":{"id":"p2","type":"text","text":"Hi"}}
-{"type":"step_finish","timestamp":1002,"part":{"id":"p3","reason":"stop","tokens":{"total":50,"input":40,"output":10},"cost":0.005}}}'
+{"type":"step_finish","timestamp":1002,"part":{"id":"p3","reason":"stop","tokens":{"total":50,"input":40,"output":10},"cost":0.005}}'
 
 test_compact "opencode full conversation with cost" 0 "total_cost_usd=0.005000" \
   '{"type":"step_start","timestamp":1000,"part":{"id":"p1","type":"step-start"}}
 {"type":"text","timestamp":1001,"part":{"id":"p2","type":"text","text":"Hi"}}
-{"type":"step_finish","timestamp":1002,"part":{"id":"p3","reason":"stop","tokens":{"total":50,"input":40,"output":10},"cost":0.005}}}'
+{"type":"step_finish","timestamp":1002,"part":{"id":"p3","reason":"stop","tokens":{"total":50,"input":40,"output":10},"cost":0.005}}'
 
 test_compact "opencode only step_start yields exit 1" 1 "" \
   '{"type":"step_start","timestamp":1000,"part":{"id":"p1","type":"step-start"}}'
@@ -555,7 +555,7 @@ test_compact "opencode only step_start yields exit 1" 1 "" \
 test_compact "opencode multiple text events concatenated" 0 "Hello world" \
   '{"type":"text","timestamp":1001,"part":{"id":"p1","type":"text","text":"Hello "}}
 {"type":"text","timestamp":1002,"part":{"id":"p2","type":"text","text":"world"}}
-{"type":"step_finish","timestamp":1003,"part":{"id":"p3","reason":"stop","tokens":{"total":50,"input":40,"output":10},"cost":0.005}}}'
+{"type":"step_finish","timestamp":1003,"part":{"id":"p3","reason":"stop","tokens":{"total":50,"input":40,"output":10},"cost":0.005}}'
 
 # ---- jira-safe-text.py tests ----
 
