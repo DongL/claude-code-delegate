@@ -20,7 +20,7 @@ Use this workflow when the user wants an orchestrator to own planning/review whi
 #### Delegate Gate
 - [ ] Show the exact orchestrator-authored prompt to the user BEFORE invocation. This is a hard gate: the user must see what will be sent to Claude Code before execution starts. Present the prompt as a normal assistant message — not through a shell command, tool output, or hidden artifact.
 - [ ] If the prompt contains secrets, private user data, or excessive copied context, show a redacted version and state what was redacted. Never redact material scope, ownership boundaries, prohibited actions, or verification commands.
-- [ ] Invoke only through `run-claude-code.sh` via the resolver function.
+- [ ] Prefer MCP transport when the `claude-code-delegate` MCP server is available (use `delegate_task` tool). Fall back to `run-claude-code.sh` via the resolver function only when MCP is not configured.
 - [ ] Default to quiet/compact mode (`--quiet`). This preserves orchestrator tokens and produces a compact final report. Streaming output is noisy, wastes context window, and should only be used for wrapper/API/permission diagnosis. Before re-streaming, check stderr heartbeat — if alive, executor is running; no need to restart.
 - [ ] The pipeline auto-classifies model tier and effort from the prompt. If the orchestrator knows the task is simpler or harder than keyword matching suggests, override with `--pro` / `--flash` / `--effort`. Prefer explicit overrides for non-trivial tasks.
 - [ ] Default `--mcp all` for general tasks. Use `--mcp jira` when the executor needs Jira MCP tools (issue queries, transitions, comments). Use `--mcp none` for isolated execution without MCP servers.
@@ -66,9 +66,10 @@ While this skill is active, the orchestrator may inspect, plan, and review local
 
 ## Invocation
 
-Two transports are available: the shell wrapper (this section) and the MCP server (see [MCP Transport](#mcp-transport) below). Both use the same classifier, envelope builder, invoker, and compactor.
+Two transports are available, both using the same classifier, envelope builder, invoker, and compactor:
 
-Always invoke Claude Code through the bundled wrapper. The orchestrator resolves the script path using this fallback chain — no mandatory setup step required:
+1. **MCP transport (preferred)** — Use the `delegate_task` tool when the `claude-code-delegate` MCP server is configured. Typed JSON-RPC, no shell needed. See [MCP Transport](#mcp-transport) below.
+2. **Shell wrapper (fallback)** — Use `run-claude-code.sh` when MCP is not available. Resolve via:
 
 ```bash
 resolve_delegator() {
@@ -109,9 +110,9 @@ Then delegate via:
 
 For the full CLI reference including all flags, env vars, and modes, see [Shell Wrapper CLI Reference](docs/shell-wrapper-reference.md).
 
-## MCP Transport
+## MCP Transport (Preferred)
 
-The bundled `scripts/mcp_server.py` exposes delegation as MCP tools over stdio JSON-RPC transport, providing an alternative to the shell wrapper. Both transports use `scripts/pipeline.py` — a single delegation pipeline (classify → envelope → invoke → compact → profile) — as their shared implementation. The MCP server imports it directly; the shell wrapper calls it via `scripts/run-pipeline.py`.
+The bundled `scripts/mcp_server.py` exposes delegation as MCP tools over stdio JSON-RPC transport. When available, this is the preferred invocation method — it provides typed contracts, structured errors, and automatic discovery without path resolution. Both transports use `scripts/pipeline.py` — a single delegation pipeline (classify → envelope → invoke → compact → profile) — as their shared implementation. The MCP server imports it directly; the shell wrapper calls it via `scripts/run-pipeline.py`.
 
 ### Adding to .mcp.json
 
@@ -147,7 +148,7 @@ Add this to your project `.mcp.json` (or the orchestrator's `.mcp.json`) and the
 | Invocation | `"$(resolve_delegator)" "$PROMPT"` | `tools/call` with typed arguments |
 | Dependencies | bash + python3 | Requires `pip install mcp` |
 
-The shell wrapper remains the primary transport and does not require the `mcp` package. The MCP server is additive — when an MCP host is available, it provides typed discovery and structured responses without changing the shell-wrapper interface.
+Prefer MCP transport when the `claude-code-delegate` MCP server is configured — it provides typed contracts, structured errors, and automatic discovery. Use the shell wrapper as a fallback when MCP is unavailable or when `--start`/`--poll` async mode is needed (async lease management is shell-wrapper only).
 
 ## Prompt Requirements
 

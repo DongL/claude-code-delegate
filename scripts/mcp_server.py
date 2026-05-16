@@ -63,22 +63,22 @@ def _classification_to_dict(c: Classification) -> dict[str, Any]:
     }
 
 
-@server.tool()
+@server.tool(structured_output=False)
 async def classify_task(prompt: str) -> dict[str, Any]:
     """Classify a task prompt into task type, recommended model, effort, and permissions."""
     classification = classify_prompt(prompt)
     return _classification_to_dict(classification)
 
 
-@server.tool()
+@server.tool(structured_output=False)
 async def format_jira_text(markdown: str) -> dict[str, Any]:
     """Convert Markdown text to Jira-safe plain text."""
     jira_safe = _get_jira_safe()
     return {"plain_text": jira_safe.markdown_to_plain(markdown)}
 
 
-@server.tool()
-async def delegate_task(
+@server.tool(structured_output=False)
+def delegate_task(
     prompt: str,
     model_tier: str = "auto",
     effort: str = "auto",
@@ -117,7 +117,7 @@ async def delegate_task(
     }
 
 
-@server.tool()
+@server.tool(structured_output=False)
 async def aggregate_profile(
     profile_log_path: str,
     format: str = "text",

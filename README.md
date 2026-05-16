@@ -7,9 +7,57 @@
 
 An orchestrator owns planning and review. This toolkit handles everything in between: classify the task, wrap it in a prompt template, invoke the selected executor (Claude Code or OpenCode), compact the output, and return a structured result. Neither the wrapper nor the pipeline approves changes — that's the orchestrator's job.
 
-<p align="center">
-  <img src="docs/assets/claude-code-delegate-architecture.svg" alt="Architecture" width="640">
-</p>
+```mermaid
+flowchart LR
+    subgraph Orchestrator["Orchestrator"]
+        Codex["Codex / GPT<br/>(plans + reviews)"]
+    end
+
+    subgraph Entry["Entry Points"]
+        MCP["🔷 mcp_server.py<br/>stdio JSON-RPC<br/><i>(preferred)</i>"]
+        SH["🔹 run-claude-code.sh<br/><i>(fallback)</i>"]
+    end
+
+    subgraph Pipeline["Pipeline (5 stages)"]
+        P["pipeline.py"]
+        CL["① classifier.py<br/>→ model + effort"]
+        EV["② envelope_builder.py<br/>→ template/envelope"]
+        IV["③ invoker.py<br/>claude -p ..."]
+        OI["③ opencode_invoker.py<br/>opencode run ..."]
+        CT["④ compact-claude-stream.py<br/>→ structured result"]
+        PL["⑤ profile_logger.py<br/>→ JSONL"]
+    end
+
+    subgraph Backends["Executor Backends"]
+        CC["Claude Code CLI<br/>(claude -p)"]
+        OC["OpenCode CLI<br/>(opencode run)"]
+    end
+
+    subgraph Models["Model Providers"]
+        PRO["DeepSeek V4 Pro<br/>1.6T / 49B active"]
+        FLASH["DeepSeek V4 Flash<br/>284B / 13B active"]
+        QWEN["Qwen 3.6 Plus Free<br/><i>(OpenCode fallback)</i>"]
+    end
+
+    Codex -->|"delegate_task (preferred)"| MCP
+    Codex -->|"(fallback)"| SH
+    SH --> P
+    MCP -->|typed JSON-RPC| P
+    P -->|①| CL
+    P -->|②| EV
+    P -->|③| IV
+    P -->|③| OI
+    IV --> CC
+    OI --> OC
+    CC --> PRO
+    CC --> FLASH
+    OC --> PRO
+    OC --> FLASH
+    OC -.->|fallback| QWEN
+    P -->|④| CT
+    P -->|⑤| PL
+    CT -->|result + cost| Codex
+```
 
 ## What This Is / Is Not
 
@@ -372,9 +420,57 @@ MIT
 
 编排器负责规划和审查。本工具处理中间所有环节：分类任务、包装 prompt 模板、调用 Claude Code、压缩输出、返回结构化结果。wrapper 和 pipeline 均不批准变更 —— 这是编排器的职责。
 
-<p align="center">
-  <img src="docs/assets/claude-code-delegate-architecture.svg" alt="架构图" width="640">
-</p>
+```mermaid
+flowchart LR
+    subgraph Orchestrator["Orchestrator"]
+        Codex["Codex / GPT<br/>(plans + reviews)"]
+    end
+
+    subgraph Entry["Entry Points"]
+        MCP["🔷 mcp_server.py<br/>stdio JSON-RPC<br/><i>(preferred)</i>"]
+        SH["🔹 run-claude-code.sh<br/><i>(fallback)</i>"]
+    end
+
+    subgraph Pipeline["Pipeline (5 stages)"]
+        P["pipeline.py"]
+        CL["① classifier.py<br/>→ model + effort"]
+        EV["② envelope_builder.py<br/>→ template/envelope"]
+        IV["③ invoker.py<br/>claude -p ..."]
+        OI["③ opencode_invoker.py<br/>opencode run ..."]
+        CT["④ compact-claude-stream.py<br/>→ structured result"]
+        PL["⑤ profile_logger.py<br/>→ JSONL"]
+    end
+
+    subgraph Backends["Executor Backends"]
+        CC["Claude Code CLI<br/>(claude -p)"]
+        OC["OpenCode CLI<br/>(opencode run)"]
+    end
+
+    subgraph Models["Model Providers"]
+        PRO["DeepSeek V4 Pro<br/>1.6T / 49B active"]
+        FLASH["DeepSeek V4 Flash<br/>284B / 13B active"]
+        QWEN["Qwen 3.6 Plus Free<br/><i>(OpenCode fallback)</i>"]
+    end
+
+    Codex -->|"delegate_task (preferred)"| MCP
+    Codex -->|"(fallback)"| SH
+    SH --> P
+    MCP -->|typed JSON-RPC| P
+    P -->|①| CL
+    P -->|②| EV
+    P -->|③| IV
+    P -->|③| OI
+    IV --> CC
+    OI --> OC
+    CC --> PRO
+    CC --> FLASH
+    OC --> PRO
+    OC --> FLASH
+    OC -.->|fallback| QWEN
+    P -->|④| CT
+    P -->|⑤| PL
+    CT -->|result + cost| Codex
+```
 
 ## 这是什么 / 不是什么
 
