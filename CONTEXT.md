@@ -51,3 +51,14 @@ A typed JSON-RPC operation registered by the MCP server. Each tool has a name, d
 ## MCP Transport
 
 The stdio JSON-RPC protocol used by `scripts/mcp_server.py` to communicate with MCP hosts. Each message is a single newline-delimited JSON line (`\n`-separated JSON-RPC). Distinct from the shell-wrapper transport (`scripts/run-claude-code.sh`) which uses CLI flags, exit codes, and stdout/stderr. The MCP transport provides typed contracts and structured errors; the shell wrapper provides universal fallback without Python package dependencies beyond the standard library.
+
+## Executor Backend
+
+The coding agent that performs implementation work. Two backends are supported:
+
+| Backend | Command | Permission Flag | Notes |
+|---------|---------|----------------|-------|
+| `claude-code` (default) | `claude -p` | `--permission-mode` | Original executor, supports effort/reasoning budget |
+| `opencode` | `opencode run` | `--dangerously-skip-permissions` | Open source alternative, uses Zen or BYO providers |
+
+Selected via `--executor` flag or `CLAUDE_DELEGATE_EXECUTOR` env var. Both backends share the same pipeline (classify → envelope → invoke → compact → profile). OpenCode does not support the `--effort` parameter — reasoning budget is configured via the model provider instead.

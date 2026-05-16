@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
-  echo "Usage: $0 [--pro|--flash] [--effort VALUE] [--quiet|--stream] [--bypass|--interactive] [--mcp MODE] [--full-context] [--allow-subagents] PROMPT [CLAUDE_ARGS...]" >&2
+  echo "Usage: $0 [--pro|--flash|--qwen] [--opencode] [--effort VALUE] [--quiet|--stream] [--bypass|--interactive] [--mcp MODE] [--full-context] [--allow-subagents] [--executor NAME] PROMPT [CLAUDE_ARGS...]" >&2
   exit 2
 fi
 
@@ -14,6 +14,7 @@ mcp_mode="${CLAUDE_DELEGATE_MCP_MODE:-all}"
 context_mode="${CLAUDE_DELEGATE_CONTEXT_MODE:-auto}"
 subagent_mode="${CLAUDE_DELEGATE_SUBAGENTS:-off}"
 heartbeat_seconds="${CLAUDE_DELEGATE_HEARTBEAT_SECONDS:-30}"
+executor="${CLAUDE_DELEGATE_EXECUTOR:-claude-code}"
 
 if [[ -n "${CLAUDE_DELEGATE_PERMISSION_MODE:-}" ]]; then
   permission_mode="$CLAUDE_DELEGATE_PERMISSION_MODE"
@@ -51,6 +52,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --flash)
       model_tier="flash"
+      shift
+      ;;
+    --qwen)
+      model_tier="qwen"
       shift
       ;;
     --effort)
@@ -93,6 +98,18 @@ while [[ $# -gt 0 ]]; do
       subagent_mode="on"
       shift
       ;;
+    --opencode)
+      executor="opencode"
+      shift
+      ;;
+    --executor)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing value for --executor (expected claude-code or opencode)" >&2
+        exit 2
+      fi
+      executor="$2"
+      shift 2
+      ;;
     --)
       shift
       break
@@ -104,7 +121,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ $# -lt 1 ]] && [[ "$mode" != "poll" ]]; then
-  echo "Usage: $0 [--start|--poll JOB_ID] [--pro|--flash] [--effort VALUE] [--quiet|--stream] [--bypass|--interactive] [--mcp MODE] [--full-context] [--allow-subagents] PROMPT [CLAUDE_ARGS...]" >&2
+  echo "Usage: $0 [--start|--poll JOB_ID] [--pro|--flash|--qwen] [--opencode] [--effort VALUE] [--quiet|--stream] [--bypass|--interactive] [--mcp MODE] [--full-context] [--allow-subagents] [--executor NAME] PROMPT [CLAUDE_ARGS...]" >&2
   exit 2
 fi
 
@@ -173,6 +190,7 @@ case "$mode" in
       "$mcp_mode" \
       "$context_mode" \
       "$subagent_mode" \
+      "$executor" \
       "$@"
     ;;
   poll)
@@ -190,6 +208,7 @@ case "$mode" in
       "$mcp_mode" \
       "$context_mode" \
       "$subagent_mode" \
+      "$executor" \
       "$@"
     ;;
 esac

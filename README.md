@@ -1,11 +1,11 @@
 # Claude Code Delegate
 
-> Let your AI orchestrator (Codex, Cursor, etc.) delegate implementation tasks to Claude Code — with DeepSeek V4 as the low-cost model backend.
+> Let your AI orchestrator (Codex, Cursor, etc.) delegate implementation tasks to Claude Code or OpenCode — with DeepSeek V4 as the low-cost model backend.
 
 <details open>
 <summary><b>English</b></summary>
 
-An orchestrator owns planning and review. This toolkit handles everything in between: classify the task, wrap it in a prompt template, invoke Claude Code, compact the output, and return a structured result. Neither the wrapper nor the pipeline approves changes — that's the orchestrator's job.
+An orchestrator owns planning and review. This toolkit handles everything in between: classify the task, wrap it in a prompt template, invoke the selected executor (Claude Code or OpenCode), compact the output, and return a structured result. Neither the wrapper nor the pipeline approves changes — that's the orchestrator's job.
 
 <p align="center">
   <img src="docs/assets/claude-code-delegate-architecture.svg" alt="Architecture" width="640">
@@ -83,6 +83,14 @@ claude -p "hello" --model deepseek-v4-flash[1m]
 
 Or use [cc-switch](https://github.com/farion1231/cc-switch) for GUI-based provider management with 50+ presets.
 
+### OpenCode (alternative executor)
+
+Set `CLAUDE_DELEGATE_EXECUTOR=opencode` to use OpenCode instead of Claude Code. OpenCode reads its own config from `~/.config/opencode/config.json` and `./opencode.json[c]`. No Anthropic API key required.
+
+```bash
+export CLAUDE_DELEGATE_EXECUTOR=opencode
+```
+
 ## How Your Orchestrator Calls It
 
 ### MCP transport (preferred)
@@ -139,7 +147,7 @@ A running job holds an execution lease. `--start` refuses to launch a second del
 
 1. **Plan** — The orchestrator reads project context and produces a concrete plan with ownership boundaries and verification commands.
 2. **Delegate** — The pipeline classifies the task, wraps it in a prompt template, resolves model/effort/permission settings, invokes Claude Code, and compacts the output.
-3. **Execute** — Claude Code implements the plan using the configured model backend (DeepSeek V4 by default).
+3. **Execute** — The executor (Claude Code or OpenCode) implements the plan using the configured model backend.
 4. **Compact** — The pipeline parses Claude Code's JSON output into a concise report: result text, token usage, cost, and terminal status.
 5. **Review** — The orchestrator inspects `git diff`, test output, and the compact report, then decides to accept, reject, or request a correction pass.
 6. **Report** — The orchestrator gives a final summary: what changed, which tests ran, residual risk.
@@ -156,9 +164,11 @@ Correction iterations repeat steps 2–5 until the diff is correct.
 
 **Model specialization.** Planning calls for broad context and high-level reasoning. Execution calls for precision and speed. No single model is best at both. Delegation lets you pair a strong planning model (Codex, Opus) with a fast execution model (DeepSeek V4 Flash, Haiku) — $0.28/delegation vs. $3–$5 on premium-tier models.
 
-**Safety boundary.** The execution plan defines which files may be touched and which commands may run. Subagents are disabled by default. A heartbeat confirms the executor is still alive during long tasks. The executor cannot silently refactor the codebase or revert unrelated changes.
+**Safety boundary.** The execution plan defines which files may be touched and which commands may run. Subagents are disabled by default in Claude Code (via `--disallowedTools Task Agent`). OpenCode subagent behavior follows its own configuration. A heartbeat confirms the executor is still alive during long tasks. The executor cannot silently refactor the codebase or revert unrelated changes.
 
 **Consistent invocation.** Model, effort, permissions, and MCP config are identical across every delegation — no flag drift between tasks. Profile metadata accumulates for trend analysis over time.
+
+**Executor flexibility.** Claude Code and OpenCode share the same pipeline (classify, envelope, compact, profile). Switch via `--executor` or `CLAUDE_DELEGATE_EXECUTOR` without changing orchestrator integration. Use Claude Code for Anthropic-model tasks with effort/reasoning budget control. Use OpenCode for open-source models (DeepSeek, Qwen) without an Anthropic API key.
 
 **Progressive trust.** Start with `--interactive` to review every tool command. Graduate to `--bypass` once you trust the output quality. Same pipeline — only the permission mode changes.
 
@@ -194,6 +204,8 @@ Dollar savings vary by provider cache pricing, model tier, task size, and cache 
 | --mcp all\|none\|jira\|linear\|sequential-thinking | CLAUDE_DELEGATE_MCP_MODE | MCP server loading |
 | --full-context | CLAUDE_DELEGATE_CONTEXT_MODE | Skip prompt template wrapping |
 | --allow-subagents | CLAUDE_DELEGATE_SUBAGENTS | Allow Claude Code to spawn subagents |
+| --opencode | CLAUDE_DELEGATE_EXECUTOR | Shorthand for --executor opencode |
+| --executor claude-code\|opencode | CLAUDE_DELEGATE_EXECUTOR | Executor backend selection |
 
 Env var equivalents and full details: [docs/shell-wrapper-reference.md](docs/shell-wrapper-reference.md). Permission modes and security: [SECURITY.md](SECURITY.md).
 
@@ -211,6 +223,7 @@ Env var equivalents and full details: [docs/shell-wrapper-reference.md](docs/she
 | `scripts/profile_logger.py` | Profile record construction and JSONL append |
 | `scripts/aggregate-profile-log.py` | Profile log aggregation and summarization |
 | `scripts/jira-safe-text.py` | Markdown → Jira-safe plain text converter |
+| `scripts/opencode_invoker.py` | OpenCode executor — subprocess launcher and heartbeat |
 | `tests/run_tests.sh` | Test runner — pipeline, invocation, and compaction |
 | `docs/shell-wrapper-reference.md` | Full CLI flag/env-var reference |
 | `docs/jira-workflow.md` | Jira-specific delegation conventions |
@@ -343,7 +356,8 @@ Each record: model, effort, task type, token usage, cache hit ratio, cost, promp
 
 ## Requirements
 
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview)
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) (default executor)
+- [OpenCode](https://github.com/opencode-ai/opencode) (alternative executor, via `--opencode` or `--executor opencode`)
 - `python3` (standard library only; `pip install mcp` optional for MCP server)
 - Access to a Claude Code-compatible model
 
@@ -529,6 +543,8 @@ wrapper 解析标志，调用 `scripts/run-pipeline.py`，输出简洁报告。�
 | --mcp all\|none\|jira\|linear\|sequential-thinking | CLAUDE_DELEGATE_MCP_MODE | MCP server 加载 |
 | --full-context | CLAUDE_DELEGATE_CONTEXT_MODE | 跳过 prompt 模板包装 |
 | --allow-subagents | CLAUDE_DELEGATE_SUBAGENTS | 允许 Claude Code 生成 subagent |
+| --opencode | CLAUDE_DELEGATE_EXECUTOR | --executor opencode 的简写 |
+| --executor claude-code\|opencode | CLAUDE_DELEGATE_EXECUTOR | 执行器后端选择 |
 
 环境变量等价项和完整细节：[docs/shell-wrapper-reference.md](docs/shell-wrapper-reference.md)。权限模式和安全：[SECURITY.md](SECURITY.md)。
 
@@ -546,6 +562,7 @@ wrapper 解析标志，调用 `scripts/run-pipeline.py`，输出简洁报告。�
 | `scripts/profile_logger.py` | 画像记录构建和 JSONL 追加 |
 | `scripts/aggregate-profile-log.py` | 画像日志聚合和摘要 |
 | `scripts/jira-safe-text.py` | Markdown → Jira 安全纯文本转换器 |
+| `scripts/opencode_invoker.py` | OpenCode 执行器 —— 子进程启动和心跳 |
 | `tests/run_tests.sh` | 测试运行器 —— pipeline、调用和压缩 |
 | `docs/shell-wrapper-reference.md` | 完整 CLI 标志/环境变量参考 |
 | `docs/jira-workflow.md` | Jira 委派约定 |

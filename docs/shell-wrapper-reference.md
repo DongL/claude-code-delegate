@@ -13,6 +13,7 @@
 | `--mcp MODE` | `CLAUDE_DELEGATE_MCP_MODE` | MCP server loading (`all`/`none`/`jira`/`linear`/`sequential-thinking`) |
 | `--full-context` | `CLAUDE_DELEGATE_CONTEXT_MODE` | Prompt adaptation (`auto`: template envelope, `full`: raw prompt) |
 | `--allow-subagents` | `CLAUDE_DELEGATE_SUBAGENTS` | Subagent control (`on`/`off`, default `off`) |
+| `--opencode` | `CLAUDE_DELEGATE_EXECUTOR` | Shorthand for `--executor opencode` |
 | `--start` | — | Launch delegation in background, return job_id JSON (async mode). |
 | `--poll JOB_ID` | — | Poll async job status, return structured JSON. |
 | `--health` | — | Run health checks (python3, claude, core scripts, runtime, mcp) and exit. Exit 0 = HEALTHY, 1 = UNHEALTHY. |
