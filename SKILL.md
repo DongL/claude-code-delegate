@@ -25,6 +25,7 @@ Use this workflow when the user wants an orchestrator to own planning/review whi
 - [ ] The pipeline auto-classifies model tier and effort from the prompt. If the orchestrator knows the task is simpler or harder than keyword matching suggests, override with `--pro` / `--flash` / `--effort`. Prefer explicit overrides for non-trivial tasks.
 - [ ] Default `--mcp all` for general tasks. Use `--mcp jira` when the executor needs Jira MCP tools (issue queries, transitions, comments). Use `--mcp none` for isolated execution without MCP servers.
 - [ ] Include prompt requirements per the Prompt Requirements section.
+- [ ] Do not wrap the invocation in a timeout. Use --start / --poll for long-running tasks.
 
 #### Execute Gate
 - [ ] Do not make local implementation edits while Claude Code is executing.
@@ -71,28 +72,7 @@ Two transports are available, both using the same classifier, envelope builder, 
 1. **MCP transport (preferred)** — Use the `delegate_task` tool when the `claude-code-delegate` MCP server is configured. Typed JSON-RPC, no shell needed. See [MCP Transport](#mcp-transport) below.
 2. **Shell wrapper (fallback)** — Use `run-claude-code.sh` when MCP is not available. Resolve via:
 
-```bash
-resolve_delegator() {
-  for dir in \
-    "${CLAUDE_DELEGATE_DIR:-}" \
-    "$HOME/.agents/skills/claude-code-delegate" \
-    "$HOME/.codex/skills/claude-code-delegate"
-  do
-    if [ -n "$dir" ] && [ -x "$dir/scripts/run-claude-code.sh" ]; then
-      echo "$dir/scripts/run-claude-code.sh"
-      return 0
-    fi
-  done
-  echo "claude-code-delegate not found. Set CLAUDE_DELEGATE_DIR or install the skill." >&2
-  return 1
-}
-```
-
-Then delegate via:
-
-```bash
-"$(resolve_delegator)" "$PROMPT"
-```
+Fallback: run scripts/run-claude-code.sh <prompt> from the skill directory.
 
 | Flag | Env Var | Effect |
 |------|---------|--------|
@@ -138,17 +118,7 @@ Add this to your project `.mcp.json` (or the orchestrator's `.mcp.json`) and the
 | `aggregate_profile` | Aggregate `CLAUDE_DELEGATE_PROFILE_LOG` JSONL into a text or JSON summary |
 | `format_jira_text` | Strip Markdown formatting for Jira-safe plain text |
 
-### MCP vs Shell Wrapper
-
-| Axis | Shell Wrapper | MCP Transport |
-|------|---------------|---------------|
-| Discovery | Orchestrator must know the resolver path | MCP client discovers tools via `tools/list` |
-| Contract | CLI flags and exit codes | Typed JSON-RPC request/response with structured errors |
-| Errors | Exit code + stderr | JSON-RPC error objects with standard codes |
-| Invocation | `"$(resolve_delegator)" "$PROMPT"` | `tools/call` with typed arguments |
-| Dependencies | bash + python3 | Requires `pip install mcp` |
-
-Prefer MCP transport when the `claude-code-delegate` MCP server is configured — it provides typed contracts, structured errors, and automatic discovery. Use the shell wrapper as a fallback when MCP is unavailable or when `--start`/`--poll` async mode is needed (async lease management is shell-wrapper only).
+Prefer MCP transport. Shell wrapper is fallback. Both use the same pipeline.
 
 ## Prompt Requirements
 
@@ -158,11 +128,9 @@ The prompt sent to Claude Code must include:
 - [ ] The concrete plan to execute.
 - [ ] Ownership boundaries: files/modules it may touch.
 - [ ] A warning not to revert unrelated user changes.
-- [ ] A recommendation to apply Karpathy-style coding guidelines if available. Key principles: surgical changes, prefer boring code, avoid overcomplication, surface assumptions, define verifiable success criteria.
+- [ ] Apply Karpathy-style coding guidelines if available.
 - [ ] Verification commands to run.
 - [ ] A request to report changed files and command results.
-
-Invoke the wrapper directly without adding `timeout`. If Claude Code appears silent, re-run with `--stream` and inspect the wrapper's stream-json events before assuming it is stuck. For long-running tasks, prefer `--start` / `--poll` — the lease prevents duplicate delegations and the orchestrator can poll for progress without assuming the executor is stuck.
 
 After Claude Code returns, show the user Claude Code's output. In quiet mode, show the compact final report. In stream mode, prefer the final result block when it is concise; if the stream output is noisy, summarize the key lines but preserve changed files, command results, errors, and any stated caveats.
 
@@ -176,4 +144,4 @@ When delegating Jira or issue tracker work, apply Jira-safe plain text formattin
 - **Silent executor**: During long delegations, the pipeline prints a heartbeat to stderr every 30s. If Claude Code appears silent, check stderr first — an active heartbeat means it's running. Set `CLAUDE_DELEGATE_HEARTBEAT_SECONDS=0` to disable (e.g., CI).
 - **Premature kill/retry**: The orchestrator may assume Claude Code is stuck and start a reduced correction plan. `--start` / `--poll` prevents this via single-flight lease. Poll with `--poll <job_id>` rather than restarting.
 - **Provider/auth errors**: Usually means the provider can't serve the model, or the token is expired. Confirm `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and model values without printing secrets.
-- **MCP delegate_task returns internal error**: Two root causes found. (1) `mcp_server.py` declared `delegate_task` as `async def` but called sync blocking code (`run_delegation_pipeline` with `subprocess.wait`). FastMCP does not put `async` functions in a thread pool — the event loop blocked, the server could not respond. Fix: changed to `def` (sync) so FastMCP auto-runs it in a thread pool. (2) `subprocess.Popen` defaults to `stdin=None`, inheriting the parent's stdin. When the MCP server runs under an MCP client, stdin is a JSON-RPC pipe — spawned `claude`/`opencode` child processes could consume protocol bytes, corrupting or deadlocking the stream. Fix: `stdin=subprocess.DEVNULL` on all 4 Popen calls in `invoker.py` and `opencode_invoker.py`. Direct stdio testing did not surface (2) because the pipe EOFs quickly; the MCP client's long-lived pipe triggers the race.
+
