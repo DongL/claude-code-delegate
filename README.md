@@ -81,10 +81,26 @@ curl -fsSL https://raw.githubusercontent.com/DongL/claude-code-delegate/main/ins
 
 ```bash
 git clone https://github.com/DongL/claude-code-delegate.git ~/.claude-code-delegate
-mkdir -p ~/.agents/skills
+mkdir -p ~/.agents/skills ~/.claude/skills ~/.codex/skills
 ln -sfn ~/.claude-code-delegate ~/.agents/skills/claude-code-delegate
+ln -sfn ~/.claude-code-delegate ~/.claude/skills/claude-code-delegate
+ln -sfn ~/.claude-code-delegate ~/.codex/skills/claude-code-delegate
 bash ~/.claude-code-delegate/tests/run_tests.sh
 pip3 install mcp  # optional: Python SDK dependency for scripts/mcp_server.py
+```
+
+### Update
+
+Re-run the one-command install (it auto-detects an existing install and does `git pull --ff-only`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DongL/claude-code-delegate/main/install.sh | bash
+```
+
+Or update manually:
+
+```bash
+git -C ~/.claude-code-delegate pull --ff-only
 ```
 
 ### As a Codex skill
@@ -559,10 +575,26 @@ curl -fsSL https://raw.githubusercontent.com/DongL/claude-code-delegate/main/ins
 
 ```bash
 git clone https://github.com/DongL/claude-code-delegate.git ~/.claude-code-delegate
-mkdir -p ~/.agents/skills
+mkdir -p ~/.agents/skills ~/.claude/skills ~/.codex/skills
 ln -sfn ~/.claude-code-delegate ~/.agents/skills/claude-code-delegate
+ln -sfn ~/.claude-code-delegate ~/.claude/skills/claude-code-delegate
+ln -sfn ~/.claude-code-delegate ~/.codex/skills/claude-code-delegate
 bash ~/.claude-code-delegate/tests/run_tests.sh
 pip3 install mcp  # 可选：scripts/mcp_server.py 的 Python SDK 依赖
+```
+
+### 更新
+
+重新运行一行命令安装（它会自动检测已有安装并执行 `git pull --ff-only`）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DongL/claude-code-delegate/main/install.sh | bash
+```
+
+或手动更新：
+
+```bash
+git -C ~/.claude-code-delegate pull --ff-only
 ```
 
 ### 作为 Codex skill
