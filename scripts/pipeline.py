@@ -3,12 +3,11 @@
 
 from __future__ import annotations
 
-import importlib.util
 import os
 from dataclasses import dataclass
 from typing import Any
 
-from classifier import Classification, classify_prompt, FLASH_MODEL, PRO_MODEL, QWEN_MODEL, build_prepared_prompt
+from classifier import Classification, classify_prompt, FLASH_MODEL, PRO_MODEL, QWEN_MODEL, build_prepared_prompt, classification_to_dict
 from invoker import InvokerConfig, invoke_claude
 from job_manager import (
     create_job_id,
@@ -26,18 +25,7 @@ _scripts_dir = os.path.dirname(os.path.abspath(__file__))
 logger = get_logger("pipeline")
 
 
-def _import_hyphenated(name: str):
-    spec = importlib.util.spec_from_file_location(
-        name.replace("-", "_"),
-        os.path.join(_scripts_dir, f"{name}.py"),
-    )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-_compact = _import_hyphenated("compact-claude-stream")
-parse_compact_output = _compact.parse_compact_output
+from compact_claude_stream import parse_compact_output
 
 
 @dataclass
@@ -91,18 +79,6 @@ def _resolve_pipeline_config(
         "mcp_mode": resolved_mcp,
         "context_mode": resolved_context,
         "subagent_mode": resolved_subagents,
-    }
-
-
-def _classification_to_dict(c: Classification) -> dict[str, Any]:
-    return {
-        "name": c.name,
-        "task_type": c.task_type,
-        "model": c.model,
-        "effort": c.effort,
-        "permission_mode": c.permission_mode,
-        "context_budget": c.context_budget,
-        "use_template": c.use_template,
     }
 
 
@@ -261,7 +237,7 @@ def run_delegation_pipeline(
         cost_usd=parsed.get("cost_usd", 0.0),
         terminal_reason=parsed.get("terminal_reason", ""),
         is_error=bool(parsed.get("is_error")),
-        classification=_classification_to_dict(classification),
+        classification=classification_to_dict(classification),
         model=model,
         effort=final_effort,
         permission_mode=final_permission,

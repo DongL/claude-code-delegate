@@ -60,8 +60,8 @@ def markdown_to_plain(text: str) -> str:
 
 def main() -> int:
     if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help"):
-        print("Usage: jira-safe-text.py [TEXT]")
-        print("       echo 'markdown' | jira-safe-text.py")
+        print("Usage: jira_safe_text.py [TEXT]")
+        print("       echo 'markdown' | jira_safe_text.py")
         print()
         print("Convert Markdown to Jira-safe plain text by stripping")
         print("formatting characters that render literally in Jira MCP.")

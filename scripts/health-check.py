@@ -18,7 +18,7 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent
 _REQUIRED_SCRIPTS = [
     "pipeline.py",
     "invoker.py",
-    "compact-claude-stream.py",
+    "compact_claude_stream.py",
     "classifier.py",
     "heartbeat.py",
     "run-pipeline.py",

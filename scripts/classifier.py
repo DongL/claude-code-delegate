@@ -168,3 +168,15 @@ def build_prepared_prompt(prompt: str, classification: Classification, context_m
         f"{original}\n",
         "envelope",
     )
+
+
+def classification_to_dict(c: Classification) -> dict:
+    return {
+        "name": c.name,
+        "task_type": c.task_type,
+        "model": c.model,
+        "effort": c.effort,
+        "permission_mode": c.permission_mode,
+        "context_budget": c.context_budget,
+        "use_template": c.use_template,
+    }

@@ -5,8 +5,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RUNNER="$SCRIPT_DIR/../scripts/run-claude-code.sh"
-COMPACT="$SCRIPT_DIR/../scripts/compact-claude-stream.py"
-AGGREGATOR="$SCRIPT_DIR/../scripts/aggregate-profile-log.py"
+COMPACT="$SCRIPT_DIR/../scripts/compact_claude_stream.py"
+AGGREGATOR="$SCRIPT_DIR/../scripts/aggregate_profile_log.py"
 
 for f in "$RUNNER" "$COMPACT" "$AGGREGATOR"; do
   [ -f "$f" ] || { echo "ERROR: $f not found"; exit 1; }
@@ -416,10 +416,10 @@ test_compact "only tool events no result exit 1" 1 "" \
   '{"type":"tool_use","name":"Read"}
 {"type":"tool_result","content":"data"}'
 
-# ---- compact-claude-stream.py tests ----
+# ---- compact_claude_stream.py tests ----
 
 echo ""
-echo "=== compact-claude-stream.py ==="
+echo "=== compact_claude_stream.py ==="
 
 test_compact "final JSON object" 0 "hello" \
   '{"type":"result","result":"hello"}'
@@ -560,12 +560,12 @@ test_compact "opencode multiple text events concatenated" 0 "Hello world" \
 {"type":"text","timestamp":1002,"part":{"id":"p2","type":"text","text":"world"}}
 {"type":"step_finish","timestamp":1003,"part":{"id":"p3","reason":"stop","tokens":{"total":50,"input":40,"output":10},"cost":0.005}}'
 
-# ---- jira-safe-text.py tests ----
+# ---- jira_safe_text.py tests ----
 
 echo ""
-echo "=== jira-safe-text.py ==="
+echo "=== jira_safe_text.py ==="
 
-JIRA_SAFE="$SCRIPT_DIR/../scripts/jira-safe-text.py"
+JIRA_SAFE="$SCRIPT_DIR/../scripts/jira_safe_text.py"
 [ -f "$JIRA_SAFE" ] || { echo "ERROR: $JIRA_SAFE not found"; exit 1; }
 
 # test_jira name input_text expected_output_substr
@@ -636,10 +636,10 @@ test_jira "multi-line comprehensive" \
   "**Bold intro** with *emphasis* and \`code\`.\n\nSee [link](http://x.com).\n\n- [x] Done thing\n- [ ] Todo thing\n\n## Notes\n\nPlain text here." \
   "Plain text here."
 
-# ---- aggregate-profile-log.py tests ----
+# ---- aggregate_profile_log.py tests ----
 
 echo ""
-echo "=== aggregate-profile-log.py ==="
+echo "=== aggregate_profile_log.py ==="
 
 # test_aggregator name expected_exit expected_out_substr jsonl_content [extra_args...]
 # Creates a temp JSONL from content (one record per line via \n), runs the aggregator.
@@ -1336,9 +1336,11 @@ spec = importlib.util.spec_from_file_location(
 )
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
-assert hasattr(mod, '_classification_to_dict')
-assert hasattr(mod, '_import_script')
+from classifier import classification_to_dict
 assert hasattr(mod, 'classify_task')
+assert hasattr(mod, 'format_jira_text')
+assert hasattr(mod, 'delegate_task')
+assert hasattr(mod, 'aggregate_profile')
 print('mcp_server OK')"
 
 test_mcp_server_py \
@@ -1356,17 +1358,11 @@ else:
     print('fastmcp_init_failed')"
 
 test_mcp_server_py \
-  "_classification_to_dict maps all fields" \
+  "classification_to_dict maps all fields" \
   "classification_to_dict OK" 0 \
-  "import importlib.util, os
-spec = importlib.util.spec_from_file_location(
-    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
-)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-from classifier import Classification
+  "from classifier import Classification, classification_to_dict
 c = Classification('small','code_edit','flash','medium','bypassPermissions','standard',True)
-d = mod._classification_to_dict(c)
+d = classification_to_dict(c)
 assert d['name'] == 'small'
 assert d['task_type'] == 'code_edit'
 assert d['model'] == 'flash'
@@ -1377,29 +1373,21 @@ assert d['use_template'] == True
 print('classification_to_dict OK')"
 
 test_mcp_server_py \
-  "_import_script loads hyphenated script jira-safe-text" \
+  "jira-safe-text direct import works" \
   "markdown_to_plain_OK" 0 \
-  "import importlib.util, os
-spec = importlib.util.spec_from_file_location(
-    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
-)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-jira = mod._import_script('jira-safe-text')
+  "import sys, os
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+import jira_safe_text as jira
 result = jira.markdown_to_plain('**bold** and *italic*')
 assert result == 'bold and italic'
 print('markdown_to_plain_OK')"
 
 test_mcp_server_py \
-  "_import_script loads compact-claude-stream parse_compact_output" \
+  "compact-claude-stream direct import parse_compact_output" \
   "compact_parse_OK" 0 \
-  "import importlib.util, os
-spec = importlib.util.spec_from_file_location(
-    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
-)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-compact = mod._import_script('compact-claude-stream')
+  "import sys, os
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+import compact_claude_stream as compact
 parsed = compact.parse_compact_output('{\"type\":\"result\",\"result\":\"done\",\"usage\":{\"input_tokens\":5,\"output_tokens\":10},\"total_cost_usd\":0.01,\"terminal_reason\":\"completed\"}')
 assert parsed['result'] == 'done'
 assert parsed['usage'] == {'input_tokens':5,'output_tokens':10}
@@ -1411,13 +1399,9 @@ print('compact_parse_OK')"
 test_mcp_server_py \
   "parse_compact_output handles stream-json with init event" \
   "stream_init_OK" 0 \
-  "import importlib.util, os
-spec = importlib.util.spec_from_file_location(
-    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
-)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-compact = mod._import_script('compact-claude-stream')
+  "import sys
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+import compact_claude_stream as compact
 parsed = compact.parse_compact_output(
     '{\"type\":\"system\",\"subtype\":\"init\",\"model\":\"stream-test\",\"effort\":\"max\"}\\n'
     '{\"type\":\"result\",\"result\":\"done\"}'
@@ -1431,13 +1415,9 @@ print('stream_init_OK')"
 test_mcp_server_py \
   "parse_compact_output no result returns empty" \
   "empty_result_OK" 0 \
-  "import importlib.util, os
-spec = importlib.util.spec_from_file_location(
-    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
-)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-compact = mod._import_script('compact-claude-stream')
+  "import sys
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+import compact_claude_stream as compact
 parsed = compact.parse_compact_output('{\"type\":\"tool_use\",\"name\":\"Read\"}')
 assert parsed['result'] == ''
 assert parsed['has_result'] == False
@@ -1446,17 +1426,9 @@ print('empty_result_OK')"
 test_mcp_server_py \
   "classify_task returns correct dict structure" \
   "classify_task_OK" 0 \
-  "from classifier import classify_prompt
-from pipeline import _resolve_auto
-import importlib.util, os
-spec = importlib.util.spec_from_file_location(
-    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
-)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-
+  "from classifier import classify_prompt, classification_to_dict
 c = classify_prompt('fix the README typo')
-d = mod._classification_to_dict(c)
+d = classification_to_dict(c)
 assert 'name' in d
 assert 'task_type' in d
 assert d['task_type'] == 'code_edit'
@@ -1465,30 +1437,21 @@ print('classify_task_OK')"
 test_mcp_server_py \
   "classify_task detects Jira operations" \
   "jira_detect_OK" 0 \
-  "from classifier import classify_prompt
-from pipeline import _resolve_auto
-import importlib.util, os
-spec = importlib.util.spec_from_file_location(
-    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
-)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
+  "import sys
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+from classifier import classify_prompt, classification_to_dict
 
 c = classify_prompt('mark CCDM-3 done in Jira')
-d = mod._classification_to_dict(c)
+d = classification_to_dict(c)
 assert d['task_type'] == 'jira_operation'
 print('jira_detect_OK')"
 
 test_mcp_server_py \
   "format_jira_text strips bold and italic" \
   "format_jira_OK" 0 \
-  "import importlib.util, os
-spec = importlib.util.spec_from_file_location(
-    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
-)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-jira = mod._import_script('jira-safe-text')
+  "import sys
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+import jira_safe_text as jira
 result = jira.markdown_to_plain('**bold** and *italic* text')
 assert result == 'bold and italic text'
 print('format_jira_OK')"
@@ -1496,13 +1459,9 @@ print('format_jira_OK')"
 test_mcp_server_py \
   "format_jira_text strips links" \
   "link_strip_OK" 0 \
-  "import importlib.util, os
-spec = importlib.util.spec_from_file_location(
-    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
-)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-jira = mod._import_script('jira-safe-text')
+  "import sys
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+import jira_safe_text as jira
 result = jira.markdown_to_plain('see [docs](https://x.com) here')
 assert result == 'see docs here'
 print('link_strip_OK')"
@@ -1558,13 +1517,9 @@ print('delegate_pipeline_OK')"
 test_mcp_server_py \
   "aggregate_profile text format with temp JSONL" \
   "Records: 2" 0 \
-  "import importlib.util, os, tempfile
-spec = importlib.util.spec_from_file_location(
-    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
-)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-agg = mod._import_script('aggregate-profile-log')
+  "import sys, os, tempfile
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+import aggregate_profile_log as agg
 
 # Create temp JSONL
 f = tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False)
@@ -1581,13 +1536,9 @@ print(text[:100])"
 test_mcp_server_py \
   "aggregate_profile json format with temp JSONL" \
   "total_records" 0 \
-  "import importlib.util, os, tempfile, json
-spec = importlib.util.spec_from_file_location(
-    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
-)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-agg = mod._import_script('aggregate-profile-log')
+  "import sys, os, tempfile, json
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+import aggregate_profile_log as agg
 
 # Create temp JSONL
 f = tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False)
@@ -1608,13 +1559,9 @@ print('total_records: {}'.format(data['total_records']))"
 test_mcp_server_py \
   "aggregate_profile empty JSONL returns no records message" \
   "No records in profile log" 0 \
-  "import importlib.util, os, tempfile
-spec = importlib.util.spec_from_file_location(
-    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
-)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-agg = mod._import_script('aggregate-profile-log')
+  "import sys, os, tempfile
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+import aggregate_profile_log as agg
 
 # Empty file
 f = tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False)
@@ -1630,13 +1577,9 @@ print(text)"
 test_mcp_server_py \
   "aggregate_profile with usage and cost data" \
   "Cost:" 0 \
-  "import importlib.util, os, tempfile
-spec = importlib.util.spec_from_file_location(
-    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
-)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-agg = mod._import_script('aggregate-profile-log')
+  "import sys, os, tempfile
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+import aggregate_profile_log as agg
 
 f = tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False)
 f.write('{\"isError\":false,\"model\":\"pro\",\"effort\":\"max\",\"usage\":{\"input_tokens\":500,\"cache_read_input_tokens\":200,\"output_tokens\":300},\"totalCostUsd\":0.05}\\n')
