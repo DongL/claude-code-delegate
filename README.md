@@ -179,6 +179,58 @@ The wrapper parses flags, calls `scripts/run-pipeline.py`, and prints a compact 
 
 Both transports share `scripts/pipeline.py` — the same classify → envelope → invoke → compact → profile logic.
 
+### Triggering Delegation in Conversation
+
+When talking to your orchestrator, use natural language. The orchestrator reads `SKILL.md` and invokes the delegate tools automatically. You can include flags inline — the orchestrator knows the flag table and passes them through.
+
+```
+delegate this: fix the typo in src/cli.py
+```
+
+No flags needed for routine edits. Auto-classification picks flash/pro based on the prompt.
+
+```
+delegate this --pro --effort max: refactor the auth module
+```
+
+Pro model with max reasoning for complex work.
+
+```
+delegate this --interactive: clean up dead code in src/legacy/
+```
+
+Review each tool command before it runs (sets `acceptEdits` permission mode).
+
+```
+delegate this --stream: investigate why the build fails on Node 22
+```
+
+Raw JSON output for debugging a failed delegation.
+
+```
+start a background delegation --pro: add test coverage for all of src/api.py
+```
+
+Long-running task — starts async, poll with `--poll <job_id>`.
+
+```
+delegate this --flash --opencode: regenerate the CSS from the design tokens
+```
+
+OpenCode executor. **Always pair `--flash` or `--qwen` with `--opencode`** — DeepSeek V4 Pro is not available on OpenCode Zen.
+
+```
+delegate this --full-context --mcp none: <detailed prompt with context>
+```
+
+Skip template wrapping, no external MCP tools.
+
+```
+delegate this --allow-subagents: add tests for all three API endpoints
+```
+
+Allow parallel subagents for independent work.
+
 ### Async delegation (lease + single-flight)
 
 For long-running tasks, use `--start` / `--poll` to prevent duplicate delegations:
@@ -585,6 +637,58 @@ delegate_task(prompt="修复 src/cli.py 中的类型错误")
 wrapper 解析标志，调用 `scripts/run-pipeline.py`，输出简洁报告。不需要 `mcp` 包。完整 CLI 参考见 [docs/shell-wrapper-reference.md](docs/shell-wrapper-reference.md)。
 
 两个传输共享 `scripts/pipeline.py` —— 相同的 classify → envelope → invoke → compact → profile 逻辑。
+
+### 在对话中触发委派
+
+直接自然语言与编排器对话即可。编排器读取 `SKILL.md` 并自动调用委派工具。可以在消息中直接带上标志——编排器理解标志表并传递它们。
+
+```
+delegate this: fix the typo in src/cli.py
+```
+
+日常编辑无需标志。自动分类会根据 prompt 选择 flash/pro。
+
+```
+delegate this --pro --effort max: refactor the auth module
+```
+
+Pro 模型 + 最大推理预算，用于复杂工作。
+
+```
+delegate this --interactive: clean up dead code in src/legacy/
+```
+
+在每条工具命令执行前进行审查（设置 `acceptEdits` 权限模式）。
+
+```
+delegate this --stream: investigate why the build fails on Node 22
+```
+
+原始 JSON 输出，用于调试失败的委派。
+
+```
+start a background delegation --pro: add test coverage for all of src/api.py
+```
+
+长时间任务——后台启动，用 `--poll <job_id>` 查询状态。
+
+```
+delegate this --flash --opencode: regenerate the CSS from the design tokens
+```
+
+OpenCode 执行器。**务必同时带上 `--flash` 或 `--qwen`**——DeepSeek V4 Pro 在 OpenCode Zen 上不可用。
+
+```
+delegate this --full-context --mcp none: <带上下文的详细 prompt>
+```
+
+跳过模板包装，无外部 MCP 工具。
+
+```
+delegate this --allow-subagents: add tests for all three API endpoints
+```
+
+允许并行 subagent 处理独立工作。
 
 ## 委派循环
 
