@@ -277,6 +277,7 @@ def launch_opencode_async(
 
     return subprocess.Popen(
         [*args, config.prompt],
+        stdin=subprocess.DEVNULL,
         stdout=stdout_fh,
         stderr=stderr_fh,
         env=child_env,
@@ -300,6 +301,7 @@ def invoke_opencode(config: OpenCodeInvokerConfig) -> subprocess.CompletedProces
 
     process = subprocess.Popen(
         [*args, config.prompt],
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         env=child_env,

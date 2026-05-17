@@ -3247,6 +3247,93 @@ rm -rf "$CLAUDE_DELEGATE_RUNTIME_DIR"
 unset CLAUDE_DELEGATE_RUNTIME_DIR
 
 
+# ---- mcp_server.py tests ----
+
+echo "=== mcp_server.py ==="
+
+set +e
+python3 - "$SCRIPT_DIR/../scripts/mcp_server.py" "$SANDBOX" <<'PY'
+import asyncio
+import json
+import os
+import sys
+
+try:
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+except ImportError:
+    print("  SKIP  MCP server unstructured JSON result (mcp package not installed)")
+    raise SystemExit(0)
+
+server_path = os.path.abspath(sys.argv[1])
+sandbox = sys.argv[2]
+
+
+async def main() -> int:
+    env = dict(os.environ)
+    env["PATH"] = sandbox + os.pathsep + env.get("PATH", "")
+    params = StdioServerParameters(
+        command="python3",
+        args=[server_path],
+        cwd=os.path.dirname(os.path.dirname(server_path)),
+        env=env,
+    )
+
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            tools = await session.list_tools()
+            by_name = {tool.name: tool for tool in tools.tools}
+            for name in ("classify_task", "delegate_task"):
+                if name not in by_name:
+                    print(f"  FAIL  MCP server exposes {name}")
+                    return 1
+                if getattr(by_name[name], "outputSchema", None) is not None:
+                    print(f"  FAIL  MCP {name} omits structured output schema")
+                    return 1
+
+            classified = await session.call_tool(
+                "classify_task",
+                {"prompt": "check how many rows are in pattern_data"},
+            )
+            if classified.structuredContent is not None:
+                print("  FAIL  MCP classify_task returns unstructured content only")
+                return 1
+            data = json.loads(classified.content[0].text)
+            if data.get("task_type") != "read_only_scan":
+                print("  FAIL  MCP classify_task returns JSON text")
+                return 1
+
+            delegated = await session.call_tool(
+                "delegate_task",
+                {
+                    "prompt": "say exactly OK",
+                    "mcp_mode": "none",
+                    "output_mode": "quiet",
+                },
+            )
+            if delegated.structuredContent is not None:
+                print("  FAIL  MCP delegate_task returns unstructured content only")
+                return 1
+            data = json.loads(delegated.content[0].text)
+            if data.get("result") != "done":
+                print("  FAIL  MCP delegate_task returns JSON text")
+                return 1
+
+            print("  PASS  MCP tools return unstructured JSON text")
+            return 0
+
+
+raise SystemExit(asyncio.run(main()))
+PY
+mcp_rc=$?
+set -e
+if [ "$mcp_rc" -eq 0 ]; then
+  passed=$((passed+1))
+else
+  failed=$((failed+1))
+fi
+
 
 # ---- summary ----
 
