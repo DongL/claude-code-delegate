@@ -132,6 +132,10 @@ def build_opencode_args(config: OpenCodeInvokerConfig) -> list[str]:
     if config.permission_mode == "bypassPermissions":
         args.append("--dangerously-skip-permissions")
 
+    if config.subagent_mode == "on":
+        args.append("--agent")
+        args.append("claude")
+
     return args
 
 
