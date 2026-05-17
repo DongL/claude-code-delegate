@@ -134,7 +134,7 @@ def build_opencode_args(config: OpenCodeInvokerConfig) -> list[str]:
 
     if config.subagent_mode == "on":
         args.append("--agent")
-        args.append("claude")
+        args.append("build")
 
     return args
 
