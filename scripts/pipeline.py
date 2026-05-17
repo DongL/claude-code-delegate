@@ -130,6 +130,28 @@ def run_delegation_pipeline(
     # 3. Build prepared prompt
     final_prompt, prompt_mode = build_prepared_prompt(prompt, classification, resolved_context)
 
+    # Validate prompt is non-empty before invoking executor
+    if not final_prompt or not final_prompt.strip():
+        logger.error("built prompt is empty — classification or template may have failed")
+        return DelegationResult(
+            result="",
+            usage={},
+            cost_usd=0.0,
+            terminal_reason="empty_prompt",
+            is_error=True,
+            classification=classification_to_dict(classification),
+            model=model,
+            effort=final_effort,
+            permission_mode=final_permission,
+            mcp_mode=resolved_mcp,
+            task_type=classification.task_type,
+            context_budget=classification.context_budget,
+            prompt_mode=prompt_mode,
+            prompt_template="",
+            original_prompt_chars=len(prompt),
+            prepared_prompt_chars=0,
+        )
+
     # Compute prompt metadata
     original_prompt_chars = len(prompt)
     prepared_prompt_chars = len(final_prompt)

@@ -46,17 +46,26 @@ def delegate_task(
     """Delegate a task to Claude Code for execution."""
     from pipeline import run_delegation_pipeline
 
-    result = run_delegation_pipeline(
-        prompt=prompt,
-        model_tier=model_tier,
-        effort=effort,
-        permission_mode=permission_mode,
-        mcp_mode=mcp_mode,
-        context_mode=context_mode,
-        subagent_mode="on" if allow_subagents else "off",
-        output_mode=output_mode,
-        executor=executor,
-    )
+    try:
+        result = run_delegation_pipeline(
+            prompt=prompt,
+            model_tier=model_tier,
+            effort=effort,
+            permission_mode=permission_mode,
+            mcp_mode=mcp_mode,
+            context_mode=context_mode,
+            subagent_mode="on" if allow_subagents else "off",
+            output_mode=output_mode,
+            executor=executor,
+        )
+    except Exception as exc:
+        return {
+            "classification": {},
+            "result": "",
+            "usage": {},
+            "cost_usd": 0.0,
+            "terminal_reason": f"pipeline_error: {exc}",
+        }
 
     return {
         "classification": result.classification,
