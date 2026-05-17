@@ -113,8 +113,8 @@ def _validate_model(model: str) -> str:
         return "opencode/qwen3.6-plus-free"
     if not ALLOWED_MODELS:
         return _map_model_for_opencode(model)
-    if "/" not in normalized:
-        return f"opencode/{normalized}"
+    if "/" not in base:
+        return f"opencode/{base}"
     return model
 
 
@@ -131,7 +131,8 @@ def build_opencode_args(config: OpenCodeInvokerConfig) -> list[str]:
     if config.permission_mode == "bypassPermissions":
         args.append("--dangerously-skip-permissions")
 
-    # subagent_mode "off" means no --agent flag (use built-in default behavior)
+    if config.subagent_mode == "on":
+        args.append("--agent")
 
     return args
 
