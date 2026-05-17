@@ -218,7 +218,7 @@ delegate this --flash --opencode: regenerate the CSS from the design tokens
 ```
 
 OpenCode executor. **Always pair `--flash` or `--qwen` with `--opencode`.** Model routing to OpenCode:
-- `--flash` → `deepseek/deepseek-v4-flash-free`
+- `--flash` → `deepseek/deepseek-v4-flash`
 - `--qwen` → `opencode/qwen3.6-plus-free`
 DeepSeek V4 Pro is not available on OpenCode Zen.
 
@@ -681,7 +681,7 @@ delegate this --flash --opencode: regenerate the CSS from the design tokens
 ```
 
 OpenCode 执行器。**务必同时带上 `--flash` 或 `--qwen`。** OpenCode 模型路由：
-- `--flash` → `deepseek/deepseek-v4-flash-free`
+- `--flash` → `deepseek/deepseek-v4-flash`
 - `--qwen` → `opencode/qwen3.6-plus-free`
 DeepSeek V4 Pro 在 OpenCode Zen 上不可用。
 
