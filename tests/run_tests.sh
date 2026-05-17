@@ -36,6 +36,9 @@ export PATH="$SANDBOX:$PATH"
 # The profile-logging test case sets its own CLAUDE_DELEGATE_PROFILE_LOG to a sandbox path.
 unset CLAUDE_DELEGATE_PROFILE_LOG
 
+# Disable heartbeat for all tests to avoid 5s join timeout per test.
+export CLAUDE_DELEGATE_HEARTBEAT_SECONDS=0
+
 passed=0
 failed=0
 
@@ -1060,15 +1063,15 @@ finally:
 test_invoker_py \
   "start_heartbeat zero interval returns None" \
   "heartbeat=None" 0 \
-  "from invoker import start_heartbeat
-h = start_heartbeat(0, 'pro', 'max', 'all', 'quiet')
+  "from heartbeat import start_heartbeat
+h = start_heartbeat(0)
 print('heartbeat={}'.format(h))"
 
 test_invoker_py \
   "start_heartbeat positive interval returns daemon thread" \
   "heartbeat_thread_daemon=True" 0 \
-  "from invoker import start_heartbeat
-h = start_heartbeat(1, 'pro', 'max', 'all', 'quiet')
+  "from heartbeat import start_heartbeat
+h = start_heartbeat(1, extra_fields={'model': 'pro', 'effort': 'max'}, prefix='Claude Code')
 print('heartbeat_thread_daemon={}'.format(h.daemon))"
 
 test_invoker_py \
