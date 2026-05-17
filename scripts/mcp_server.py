@@ -44,6 +44,15 @@ def delegate_task(
     executor: str = "claude-code",
 ) -> dict[str, Any]:
     """Delegate a task to Claude Code for execution."""
+    import importlib
+
+    # Reload pipeline and its key deps to pick up code changes without
+    # restarting the MCP server process (long-lived over stdio).
+    for mod_name in ("classifier", "invoker", "opencode_invoker", "pipeline"):
+        m = sys.modules.get(mod_name)
+        if m is not None:
+            importlib.reload(m)
+
     from pipeline import run_delegation_pipeline
 
     try:
