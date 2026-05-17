@@ -21,10 +21,10 @@ flowchart LR
     subgraph Pipeline["Pipeline (5 stages)"]
         P["pipeline.py"]
         CL["① classifier.py<br/>→ model + effort"]
-        EV["② envelope_builder.py<br/>→ template/envelope"]
+        EV["② classifier.py<br/>→ template/envelope"]
         IV["③ invoker.py<br/>claude -p ..."]
         OI["③ opencode_invoker.py<br/>opencode run ..."]
-        CT["④ compact-claude-stream.py<br/>→ structured result"]
+        CT["④ compact_claude_stream.py<br/>→ structured result"]
         PL["⑤ profile_logger.py<br/>→ JSONL"]
     end
 
@@ -271,7 +271,7 @@ Correction iterations repeat steps 2–5 until the diff is correct.
 
 **Model specialization.** Planning calls for broad context and high-level reasoning. Execution calls for precision and speed. No single model is best at both. Delegation lets you pair a strong planning model (Codex, Opus) with a fast execution model (DeepSeek V4 Flash, Haiku) — $0.28/delegation vs. $3–$5 on premium-tier models.
 
-**Safety boundary.** The execution plan defines which files may be touched and which commands may run. Subagents are disabled by default in Claude Code (via `--disallowedTools Task Agent`). OpenCode subagent behavior follows its own configuration. A heartbeat confirms the executor is still alive during long tasks. The executor cannot silently refactor the codebase or revert unrelated changes.
+**Safety boundary.** The execution plan defines which files may be touched and which commands may run. Subagents are disabled by default for both Claude Code (via `--disallowedTools Task Agent`) and OpenCode (via no `--agent` flag). Pass `--allow-subagents` to enable. A heartbeat confirms the executor is still alive during long tasks. The executor cannot silently refactor the codebase or revert unrelated changes.
 
 **Consistent invocation.** Model, effort, permissions, and MCP config are identical across every delegation — no flag drift between tasks. Profile metadata accumulates for trend analysis over time.
 
@@ -311,7 +311,7 @@ Dollar savings vary by provider cache pricing, model tier, task size, and cache 
 | --bypass | CLAUDE_DELEGATE_PERMISSION_MODE | Fully non-interactive (default) |
 | --mcp all\|none\|jira\|linear\|sequential-thinking | CLAUDE_DELEGATE_MCP_MODE | MCP server loading |
 | --full-context | CLAUDE_DELEGATE_CONTEXT_MODE | Skip prompt template wrapping |
-| --allow-subagents | CLAUDE_DELEGATE_SUBAGENTS | Allow Claude Code to spawn subagents |
+| --allow-subagents | CLAUDE_DELEGATE_SUBAGENTS | Allow Claude Code/OpenCode to spawn subagents |
 | --opencode | CLAUDE_DELEGATE_EXECUTOR | Shorthand for --executor opencode |
 | --executor claude-code\|opencode | CLAUDE_DELEGATE_EXECUTOR | Executor backend selection |
 
@@ -327,11 +327,16 @@ Env var equivalents and full details: [docs/shell-wrapper-reference.md](docs/she
 | `scripts/run-pipeline.py` | CLI entry point for shell wrapper consumers |
 | `scripts/run-claude-code.sh` | Shell wrapper — flag parsing only |
 | `scripts/mcp_server.py` | MCP server — typed JSON-RPC tools over stdio |
-| `scripts/compact-claude-stream.py` | Output parser — JSON stream → structured report |
+| `scripts/compact_claude_stream.py` | Output parser — JSON stream → structured report |
+| `scripts/claude_adapter.py` | Claude Code stream-json adapter |
+| `scripts/opencode_adapter.py` | OpenCode event stream adapter |
 | `scripts/profile_logger.py` | Profile record construction and JSONL append |
-| `scripts/aggregate-profile-log.py` | Profile log aggregation and summarization |
-| `scripts/jira-safe-text.py` | Markdown → Jira-safe plain text converter |
+| `scripts/aggregate_profile_log.py` | Profile log aggregation and summarization |
+| `scripts/jira_safe_text.py` | Markdown → Jira-safe plain text converter |
+| `scripts/invoker.py` | Claude Code executor — subprocess launcher and heartbeat |
 | `scripts/opencode_invoker.py` | OpenCode executor — subprocess launcher and heartbeat |
+| `scripts/heartbeat.py` | Shared subprocess heartbeat monitor |
+| `scripts/classifier.py` | Task classifier + prompt template builder |
 | `tests/run_tests.sh` | Test runner — pipeline, invocation, and compaction |
 | `docs/shell-wrapper-reference.md` | Full CLI flag/env-var reference |
 | `docs/jira-workflow.md` | Jira-specific delegation conventions |
@@ -457,7 +462,7 @@ Shell fallback for the same operations:
 ```bash
 export CLAUDE_DELEGATE_PROFILE_LOG=logs/profile.jsonl
 ./scripts/run-claude-code.sh "your prompt"
-python3 scripts/aggregate-profile-log.py logs/profile.jsonl
+python3 scripts/aggregate_profile_log.py logs/profile.jsonl
 ```
 
 Each record: model, effort, task type, token usage, cache hit ratio, cost, prompt character counts.
@@ -494,10 +499,10 @@ flowchart LR
     subgraph Pipeline["Pipeline (5 stages)"]
         P["pipeline.py"]
         CL["① classifier.py<br/>→ model + effort"]
-        EV["② envelope_builder.py<br/>→ template/envelope"]
+        EV["② classifier.py<br/>→ template/envelope"]
         IV["③ invoker.py<br/>claude -p ..."]
         OI["③ opencode_invoker.py<br/>opencode run ..."]
-        CT["④ compact-claude-stream.py<br/>→ structured result"]
+        CT["④ compact_claude_stream.py<br/>→ structured result"]
         PL["⑤ profile_logger.py<br/>→ JSONL"]
     end
 
@@ -722,7 +727,7 @@ delegate this --allow-subagents: add tests for all three API endpoints
 
 **模型专业化。** 规划需要广泛上下文和高层次推理。执行需要精确和速度。没有哪个模型两者都擅长。委派让你将强规划模型（Codex、Opus）与快速执行模型（DeepSeek V4 Flash、Haiku）配对——每次委派约 $0.28，而 premium 级模型需 $3–$5。
 
-**安全边界。** 执行计划定义哪些文件可以接触，哪些命令可以运行。subagent 默认禁用。心跳确认执行器在长任务期间仍在运行。执行器不能静默重构代码库或还原无关变更。
+**安全边界。** 执行计划定义哪些文件可以接触，哪些命令可以运行。subagent 默认禁用（Claude Code 通过 `--disallowedTools Task Agent`，OpenCode 通过不传递 `--agent` 标志）。使用 `--allow-subagents` 启用。心跳确认执行器在长任务期间仍在运行。执行器不能静默重构代码库或还原无关变更。
 
 **一致调用。** model、effort、permissions 和 MCP config 在每次委派中完全一致——不会出现任务间标志漂移。画像元数据随时间积累，用于趋势分析。
 
@@ -758,7 +763,7 @@ delegate this --allow-subagents: add tests for all three API endpoints
 | --bypass | CLAUDE_DELEGATE_PERMISSION_MODE | 完全非交互（默认） |
 | --mcp all\|none\|jira\|linear\|sequential-thinking | CLAUDE_DELEGATE_MCP_MODE | MCP server 加载 |
 | --full-context | CLAUDE_DELEGATE_CONTEXT_MODE | 跳过 prompt 模板包装 |
-| --allow-subagents | CLAUDE_DELEGATE_SUBAGENTS | 允许 Claude Code 生成 subagent |
+| --allow-subagents | CLAUDE_DELEGATE_SUBAGENTS | 允许 Claude Code/OpenCode 生成 subagent |
 | --opencode | CLAUDE_DELEGATE_EXECUTOR | --executor opencode 的简写 |
 | --executor claude-code\|opencode | CLAUDE_DELEGATE_EXECUTOR | 执行器后端选择 |
 
@@ -774,11 +779,16 @@ delegate this --allow-subagents: add tests for all three API endpoints
 | `scripts/run-pipeline.py` | CLI 入口 —— 供 shell wrapper 调用 |
 | `scripts/run-claude-code.sh` | Shell wrapper —— 仅做标志解析 |
 | `scripts/mcp_server.py` | MCP server —— 基于 stdio 的类型化 JSON-RPC 工具 |
-| `scripts/compact-claude-stream.py` | 输出解析器 —— JSON 流 → 结构化报告 |
+| `scripts/compact_claude_stream.py` | 输出解析器 —— JSON 流 → 结构化报告 |
+| `scripts/claude_adapter.py` | Claude Code stream-json 适配器 |
+| `scripts/opencode_adapter.py` | OpenCode 事件流适配器 |
 | `scripts/profile_logger.py` | 画像记录构建和 JSONL 追加 |
-| `scripts/aggregate-profile-log.py` | 画像日志聚合和摘要 |
-| `scripts/jira-safe-text.py` | Markdown → Jira 安全纯文本转换器 |
+| `scripts/aggregate_profile_log.py` | 画像日志聚合和摘要 |
+| `scripts/jira_safe_text.py` | Markdown → Jira 安全纯文本转换器 |
+| `scripts/invoker.py` | Claude Code 执行器 —— 子进程启动和心跳 |
 | `scripts/opencode_invoker.py` | OpenCode 执行器 —— 子进程启动和心跳 |
+| `scripts/heartbeat.py` | 共享子进程心跳监控 |
+| `scripts/classifier.py` | 任务分类器 + prompt 模板构建器 |
 | `tests/run_tests.sh` | 测试运行器 —— pipeline、调用和压缩 |
 | `docs/shell-wrapper-reference.md` | 完整 CLI 标志/环境变量参考 |
 | `docs/jira-workflow.md` | Jira 委派约定 |
@@ -816,7 +826,7 @@ Shell 后备方式：
 ```bash
 export CLAUDE_DELEGATE_PROFILE_LOG=logs/profile.jsonl
 ./scripts/run-claude-code.sh "你的 prompt"
-python3 scripts/aggregate-profile-log.py logs/profile.jsonl
+python3 scripts/aggregate_profile_log.py logs/profile.jsonl
 ```
 
 每条记录包含：model、effort、任务类型、token 用量、缓存命中率、成本、prompt 字符数。
