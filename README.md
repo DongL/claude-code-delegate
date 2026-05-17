@@ -217,7 +217,10 @@ Long-running task — starts async, poll with `--poll <job_id>`.
 delegate this --flash --opencode: regenerate the CSS from the design tokens
 ```
 
-OpenCode executor. **Always pair `--flash` or `--qwen` with `--opencode`** — DeepSeek V4 Pro is not available on OpenCode Zen.
+OpenCode executor. **Always pair `--flash` or `--qwen` with `--opencode`.** Model routing to OpenCode:
+- `--flash` → `deepseek/deepseek-v4-flash-free`
+- `--qwen` → `opencode/qwen3.6-plus-free`
+DeepSeek V4 Pro is not available on OpenCode Zen.
 
 ```
 delegate this --full-context --mcp none: <detailed prompt with context>
@@ -299,6 +302,7 @@ Dollar savings vary by provider cache pricing, model tier, task size, and cache 
 | --start | — | Launch in background, return job_id JSON (async + lease guard) |
 | --poll JOB_ID | — | Poll job status (running/completed/failed) |
 | --pro / --flash | CLAUDE_DELEGATE_MODEL | Model tier selection |
+| --qwen | CLAUDE_DELEGATE_MODEL | Qwen model selection |
 | --effort low\|medium\|high\|max | CLAUDE_DELEGATE_EFFORT | Reasoning budget override |
 | --quiet / --stream | CLAUDE_DELEGATE_OUTPUT_MODE | Output format (quiet: compact report, stream: raw JSON) |
 | --interactive | CLAUDE_DELEGATE_PERMISSION_MODE | Auto-accept edits, prompt on tool commands |
@@ -676,7 +680,10 @@ start a background delegation --pro: add test coverage for all of src/api.py
 delegate this --flash --opencode: regenerate the CSS from the design tokens
 ```
 
-OpenCode 执行器。**务必同时带上 `--flash` 或 `--qwen`**——DeepSeek V4 Pro 在 OpenCode Zen 上不可用。
+OpenCode 执行器。**务必同时带上 `--flash` 或 `--qwen`。** OpenCode 模型路由：
+- `--flash` → `deepseek/deepseek-v4-flash-free`
+- `--qwen` → `opencode/qwen3.6-plus-free`
+DeepSeek V4 Pro 在 OpenCode Zen 上不可用。
 
 ```
 delegate this --full-context --mcp none: <带上下文的详细 prompt>
@@ -740,6 +747,7 @@ delegate this --allow-subagents: add tests for all three API endpoints
 |------|----------|------|
 | *(默认)* | | Pro 模型，quiet 输出，bypass 权限 |
 | --pro / --flash | CLAUDE_DELEGATE_MODEL | 模型层级选择 |
+| --qwen | CLAUDE_DELEGATE_MODEL | Qwen 模型选择 |
 | --effort low\|medium\|high\|max | CLAUDE_DELEGATE_EFFORT | 推理预算覆盖 |
 | --quiet / --stream | CLAUDE_DELEGATE_OUTPUT_MODE | 输出格式（quiet: 简洁报告，stream: 原始 JSON） |
 | --interactive | CLAUDE_DELEGATE_PERMISSION_MODE | 自动接受编辑，工具命令需确认 |
