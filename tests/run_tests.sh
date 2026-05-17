@@ -1467,8 +1467,8 @@ args = build_opencode_args(c)
 print('--agent:{}'.format('--agent' in args))"
 
 test_opencode_invoker_py \
-  "build_opencode_args subagent_mode=on has --agent" \
-  "--agent:True" 0 \
+  "build_opencode_args subagent_mode=on omits --agent (string flag, not boolean)" \
+  "--agent:False" 0 \
   "from opencode_invoker import build_opencode_args, OpenCodeInvokerConfig
 c = OpenCodeInvokerConfig(model='pro', permission_mode='bypassPermissions', mcp_mode='all', subagent_mode='on', heartbeat_seconds=0, output_mode='quiet', prompt='test')
 args = build_opencode_args(c)
