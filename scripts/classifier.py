@@ -29,7 +29,7 @@ def _has_any(text: str, words: tuple[str, ...]) -> bool:
 
 def classify_prompt(prompt: str) -> Classification:
     text = prompt.lower()
-    edit_words = ("implement", "fix", "update", "change", "write", "add", "patch")
+    edit_words = ("implement", "fix", "update", "change", "write", "add", "patch", "regenerate")
     read_words = ("check", "show", "list", "count", "how many", "inspect", "find")
     jira_words = (
         "jira",
