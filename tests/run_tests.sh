@@ -5,8 +5,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RUNNER="$SCRIPT_DIR/../scripts/run-claude-code.sh"
-COMPACT="$SCRIPT_DIR/../scripts/compact-claude-stream.py"
-AGGREGATOR="$SCRIPT_DIR/../scripts/aggregate-profile-log.py"
+COMPACT="$SCRIPT_DIR/../scripts/compact_claude_stream.py"
+AGGREGATOR="$SCRIPT_DIR/../scripts/aggregate_profile_log.py"
 
 for f in "$RUNNER" "$COMPACT" "$AGGREGATOR"; do
   [ -f "$f" ] || { echo "ERROR: $f not found"; exit 1; }
@@ -35,6 +35,9 @@ export PATH="$SANDBOX:$PATH"
 # Unset profile log to prevent test runs from polluting real profiling data.
 # The profile-logging test case sets its own CLAUDE_DELEGATE_PROFILE_LOG to a sandbox path.
 unset CLAUDE_DELEGATE_PROFILE_LOG
+
+# Disable heartbeat for all tests to avoid 5s join timeout per test.
+export CLAUDE_DELEGATE_HEARTBEAT_SECONDS=0
 
 passed=0
 failed=0
@@ -413,10 +416,10 @@ test_compact "only tool events no result exit 1" 1 "" \
   '{"type":"tool_use","name":"Read"}
 {"type":"tool_result","content":"data"}'
 
-# ---- compact-claude-stream.py tests ----
+# ---- compact_claude_stream.py tests ----
 
 echo ""
-echo "=== compact-claude-stream.py ==="
+echo "=== compact_claude_stream.py ==="
 
 test_compact "final JSON object" 0 "hello" \
   '{"type":"result","result":"hello"}'
@@ -497,7 +500,9 @@ else
 fi
 rm -f "$outfile"
 
-profile_log="$SANDBOX/profile.jsonl"
+# Profile logging is consolidated to pipeline.py (CCDM-35).
+# The compact script no longer writes profile records — verify it does not.
+profile_log="$SANDBOX/profile_no_write.jsonl"
 outfile=$(mktemp "$SANDBOX/cs_out.XXXX")
 set +e
 printf '%s' '{"type":"result","result":"ok","usage":{"input_tokens":5},"total_cost_usd":0.1}' | \
@@ -509,17 +514,149 @@ printf '%s' '{"type":"result","result":"ok","usage":{"input_tokens":5},"total_co
 rc=$?
 set -e
 if [ "$rc" -ne 0 ]; then
-  echo "  FAIL  profile jsonl logging (exit $rc, expected 0)"
+  echo "  FAIL  compact script no longer does profile logging (exit $rc, expected 0)"
   failed=$((failed+1))
-elif ! grep -qF -e '"class": "small"' "$profile_log" || ! grep -qF -e '"input_tokens": 5' "$profile_log"; then
-  echo "  FAIL  profile jsonl logging (missing expected record)"
-  echo "        log: $(cat "$profile_log" 2>/dev/null || true)"
+elif [ -f "$profile_log" ]; then
+  echo "  FAIL  compact script should not write profile log (CCDM-35)"
   failed=$((failed+1))
 else
-  echo "  PASS  profile jsonl logging"
+  echo "  PASS  compact script delegates profile logging to pipeline (CCDM-35)"
   passed=$((passed+1))
 fi
 rm -f "$outfile"
+
+# ---- claude_adapter.py unit tests ----
+
+echo ""
+echo "=== claude_adapter.py ==="
+
+test_adapter_py() {
+  local name="$1" expected_out="$2" expected_exit="$3"
+  local py_script; py_script=$(mktemp "$SANDBOX/adapter_script.XXXX.py")
+  cat > "$py_script" <<PYEOF
+import sys
+sys.path.insert(0, "$SCRIPT_DIR/../scripts")
+$4
+PYEOF
+  local outfile; outfile=$(mktemp "$SANDBOX/adapter_out.XXXX")
+  local errfile; errfile=$(mktemp "$SANDBOX/adapter_err.XXXX")
+  set +e
+  python3 "$py_script" > "$outfile" 2> "$errfile"
+  local rc=$?
+  set -e
+  if [ "$rc" -ne "$expected_exit" ]; then
+    echo "  FAIL  $name (exit $rc, expected $expected_exit)"
+    echo "        stderr: $(cat "$errfile")"
+    failed=$((failed+1))
+  elif [ -n "$expected_out" ] && ! grep -qF -e "$expected_out" "$outfile"; then
+    echo "  FAIL  $name (output missing: $expected_out)"
+    echo "        output: $(cat "$outfile")"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+  rm -f "$py_script" "$outfile" "$errfile"
+}
+
+test_adapter_py \
+  "claude_adapter module imports" \
+  "claude_adapter OK" 0 \
+  "from claude_adapter import parse_claude_events, _deserialize; print('claude_adapter OK')"
+
+test_adapter_py \
+  "claude_adapter parses init event" \
+  "model: claude-sonnet-4" 0 \
+  "from claude_adapter import parse_claude_events
+result = parse_claude_events([{'type':'system','subtype':'init','model':'claude-sonnet-4'}])
+print('model: {}'.format(result['model']))"
+
+test_adapter_py \
+  "claude_adapter parses result event" \
+  "result: done" 0 \
+  "from claude_adapter import parse_claude_events
+result = parse_claude_events([{'type':'result','result':'done','usage':{'input_tokens':5}}])
+print('result: {}'.format(result['result']))"
+
+test_adapter_py \
+  "claude_adapter parses usage" \
+  "input_tokens: 5" 0 \
+  "from claude_adapter import parse_claude_events
+result = parse_claude_events([{'type':'result','result':'ok','usage':{'input_tokens':5,'output_tokens':10}}])
+print('input_tokens: {}'.format(result['usage'].get('input_tokens')))"
+
+test_adapter_py \
+  "claude_adapter has_init flag" \
+  "has_init: True" 0 \
+  "from claude_adapter import parse_claude_events
+result = parse_claude_events([{'type':'system','subtype':'init','model':'m'},{'type':'result','result':'ok'}])
+print('has_init: {}'.format(result['has_init']))"
+
+test_adapter_py \
+  "claude_adapter deserializes newline-delimited JSON" \
+  "count: 2" 0 \
+  "from claude_adapter import _deserialize
+events = _deserialize('{\"type\":\"init\"}\n{\"type\":\"result\"}')
+print('count: {}'.format(len(events)))"
+
+test_adapter_py \
+  "claude_adapter deserializes single JSON object" \
+  "count: 1" 0 \
+  "from claude_adapter import _deserialize
+events = _deserialize('{\"type\":\"result\",\"result\":\"ok\"}')
+print('count: {}'.format(len(events)))"
+
+# ---- opencode_adapter.py unit tests ----
+
+echo ""
+echo "=== opencode_adapter.py ==="
+
+test_adapter_py \
+  "opencode_adapter module imports" \
+  "opencode_adapter OK" 0 \
+  "from opencode_adapter import parse_opencode_events, _deserialize; print('opencode_adapter OK')"
+
+test_adapter_py \
+  "opencode_adapter parses text event" \
+  "result: Hello" 0 \
+  "from opencode_adapter import parse_opencode_events
+result = parse_opencode_events([{'type':'text','part':{'type':'text','text':'Hello'}}])
+print('result: {}'.format(result['result']))"
+
+test_adapter_py \
+  "opencode_adapter parses step_finish with usage" \
+  "input_tokens: 100" 0 \
+  "from opencode_adapter import parse_opencode_events
+result = parse_opencode_events([{'type':'step_finish','part':{'tokens':{'input':100,'output':50},'cost':0.01}}])
+print('input_tokens: {}'.format(result['usage'].get('input_tokens')))"
+
+test_adapter_py \
+  "opencode_adapter parses error event" \
+  "is_error: True" 0 \
+  "from opencode_adapter import parse_opencode_events
+result = parse_opencode_events([{'type':'error','error':{'data':{'message':'Auth failed'}}}])
+print('is_error: {}'.format(result['is_error']))"
+
+test_adapter_py \
+  "opencode_adapter parses cost" \
+  "cost_usd: 0.01" 0 \
+  "from opencode_adapter import parse_opencode_events
+result = parse_opencode_events([{'type':'step_finish','part':{'tokens':{},'cost':0.01}}])
+print('cost_usd: {}'.format(result['cost_usd']))"
+
+test_adapter_py \
+  "opencode_adapter has_init is False" \
+  "has_init: False" 0 \
+  "from opencode_adapter import parse_opencode_events
+result = parse_opencode_events([{'type':'text','part':{'type':'text','text':'hi'}}])
+print('has_init: {}'.format(result['has_init']))"
+
+test_adapter_py \
+  "opencode_adapter deserializes event stream" \
+  "count: 3" 0 \
+  "from opencode_adapter import _deserialize
+events = _deserialize('{\"type\":\"step_start\"}\n{\"type\":\"text\",\"part\":{\"type\":\"text\",\"text\":\"hi\"}}\n{\"type\":\"step_finish\",\"part\":{}}')
+print('count: {}'.format(len(events)))"
 
 test_compact "empty input exit 1" 1 "" ""
 
@@ -557,12 +694,12 @@ test_compact "opencode multiple text events concatenated" 0 "Hello world" \
 {"type":"text","timestamp":1002,"part":{"id":"p2","type":"text","text":"world"}}
 {"type":"step_finish","timestamp":1003,"part":{"id":"p3","reason":"stop","tokens":{"total":50,"input":40,"output":10},"cost":0.005}}'
 
-# ---- jira-safe-text.py tests ----
+# ---- jira_safe_text.py tests ----
 
 echo ""
-echo "=== jira-safe-text.py ==="
+echo "=== jira_safe_text.py ==="
 
-JIRA_SAFE="$SCRIPT_DIR/../scripts/jira-safe-text.py"
+JIRA_SAFE="$SCRIPT_DIR/../scripts/jira_safe_text.py"
 [ -f "$JIRA_SAFE" ] || { echo "ERROR: $JIRA_SAFE not found"; exit 1; }
 
 # test_jira name input_text expected_output_substr
@@ -633,10 +770,10 @@ test_jira "multi-line comprehensive" \
   "**Bold intro** with *emphasis* and \`code\`.\n\nSee [link](http://x.com).\n\n- [x] Done thing\n- [ ] Todo thing\n\n## Notes\n\nPlain text here." \
   "Plain text here."
 
-# ---- aggregate-profile-log.py tests ----
+# ---- aggregate_profile_log.py tests ----
 
 echo ""
-echo "=== aggregate-profile-log.py ==="
+echo "=== aggregate_profile_log.py ==="
 
 # test_aggregator name expected_exit expected_out_substr jsonl_content [extra_args...]
 # Creates a temp JSONL from content (one record per line via \n), runs the aggregator.
@@ -739,34 +876,10 @@ test_aggregator_no_file() {
 }
 test_aggregator_no_file
 
-# ---- envelope_builder.py tests ----
+# ---- classifier.py (envelope builder merged) tests ----
 
 echo ""
-echo "=== envelope_builder.py ==="
-
-ENVELOPE_BUILDER="$SCRIPT_DIR/../scripts/envelope_builder.py"
-
-# test_envelope name expected_stdout expected_exit python_stdin
-test_envelope() {
-  local name="$1" expected_out="$2" expected_exit="$3" stdin="$4"
-  local outfile; outfile=$(mktemp "$SANDBOX/eb_out.XXXX")
-  set +e
-  printf '%s' "$stdin" | python3 "$ENVELOPE_BUILDER" > "$outfile" 2>/dev/null
-  local rc=$?
-  set -e
-  if [ "$rc" -ne "$expected_exit" ]; then
-    echo "  FAIL  $name (exit $rc, expected $expected_exit)"
-    failed=$((failed+1))
-  elif [ -n "$expected_out" ] && ! grep -qF -e "$expected_out" "$outfile"; then
-    echo "  FAIL  $name (output missing: $expected_out)"
-    echo "        output: $(cat "$outfile")"
-    failed=$((failed+1))
-  else
-    echo "  PASS  $name"
-    passed=$((passed+1))
-  fi
-  rm -f "$outfile"
-}
+echo "=== classifier.py ==="
 
 # Unit tests for build_prepared_prompt via temp Python scripts.
 # Writes Python code into a temp .py file and executes it — avoids all shell quoting/expansion issues.
@@ -800,15 +913,14 @@ PYEOF
 }
 
 test_envelope_py \
-  "envelope_builder module exists and imports" \
-  "envelope_builder OK" 0 \
-  "from envelope_builder import build_prepared_prompt; print('envelope_builder OK')"
+  "classifier module exists and imports build_prepared_prompt" \
+  "classifier OK" 0 \
+  "from classifier import build_prepared_prompt; print('classifier OK')"
 
 test_envelope_py \
   "build_prepared_prompt read_only_scan template" \
   "Task Template: read-only scan" 0 \
-  "from envelope_builder import build_prepared_prompt
-from classifier import Classification
+  "from classifier import build_prepared_prompt, Classification
 c = Classification('tiny','read_only_scan','flash','low','bypassPermissions','minimal',True)
 p, m = build_prepared_prompt('check how many rows', c, 'auto')
 print(p)"
@@ -816,8 +928,7 @@ print(p)"
 test_envelope_py \
   "build_prepared_prompt code_edit template" \
   "Task Template: code edit" 0 \
-  "from envelope_builder import build_prepared_prompt
-from classifier import Classification
+  "from classifier import build_prepared_prompt, Classification
 c = Classification('small','code_edit','flash','medium','bypassPermissions','standard',True)
 p, m = build_prepared_prompt('fix a bug', c, 'auto')
 print(p)"
@@ -825,8 +936,7 @@ print(p)"
 test_envelope_py \
   "build_prepared_prompt jira_operation template" \
   "Task Template: Jira operation" 0 \
-  "from envelope_builder import build_prepared_prompt
-from classifier import Classification
+  "from classifier import build_prepared_prompt, Classification
 c = Classification('small','jira_operation','flash','medium','bypassPermissions','standard',True)
 p, m = build_prepared_prompt('mark CCDM-3 done', c, 'auto')
 print(p)"
@@ -834,8 +944,7 @@ print(p)"
 test_envelope_py \
   "build_prepared_prompt architecture_review template" \
   "Task Template: architecture review" 0 \
-  "from envelope_builder import build_prepared_prompt
-from classifier import Classification
+  "from classifier import build_prepared_prompt, Classification
 c = Classification('large','architecture_review','pro','max','bypassPermissions','expanded',True)
 p, m = build_prepared_prompt('architecture refactor', c, 'auto')
 print(p)"
@@ -843,8 +952,7 @@ print(p)"
 test_envelope_py \
   "build_prepared_prompt unrecognized task_type uses envelope fallback" \
   "Task Context Envelope" 0 \
-  "from envelope_builder import build_prepared_prompt
-from classifier import Classification
+  "from classifier import build_prepared_prompt, Classification
 c = Classification('custom','unrecognized_type','pro','max','bypassPermissions','full',True)
 p, m = build_prepared_prompt('hello world', c, 'auto')
 print(p)"
@@ -852,8 +960,7 @@ print(p)"
 test_envelope_py \
   "build_prepared_prompt full context_mode returns prompt unchanged" \
   "hello world" 0 \
-  "from envelope_builder import build_prepared_prompt
-from classifier import Classification
+  "from classifier import build_prepared_prompt, Classification
 c = Classification('tiny','read_only_scan','flash','low','bypassPermissions','minimal',True)
 p, m = build_prepared_prompt('hello world', c, 'full')
 print(p)"
@@ -861,8 +968,7 @@ print(p)"
 test_envelope_py \
   "build_prepared_prompt non-template classification returns full" \
   "original text here" 0 \
-  "from envelope_builder import build_prepared_prompt
-from classifier import Classification
+  "from classifier import build_prepared_prompt, Classification
 c = Classification('default','unknown','pro','max','bypassPermissions','full',False)
 p, m = build_prepared_prompt('original text here', c, 'auto')
 print(p)"
@@ -870,8 +976,7 @@ print(p)"
 test_envelope_py \
   "build_prepared_prompt jira returns mode template" \
   "template" 0 \
-  "from envelope_builder import build_prepared_prompt
-from classifier import Classification
+  "from classifier import build_prepared_prompt, Classification
 c = Classification('small','jira_operation','flash','medium','bypassPermissions','standard',True)
 p, m = build_prepared_prompt('mark it done', c, 'auto')
 print(m)"
@@ -879,8 +984,7 @@ print(m)"
 test_envelope_py \
   "build_prepared_prompt envelope returns mode envelope" \
   "envelope" 0 \
-  "from envelope_builder import build_prepared_prompt
-from classifier import Classification
+  "from classifier import build_prepared_prompt, Classification
 c = Classification('custom','unrecognized_type','pro','max','bypassPermissions','full',True)
 p, m = build_prepared_prompt('hi', c, 'auto')
 print(m)"
@@ -888,8 +992,7 @@ print(m)"
 test_envelope_py \
   "build_prepared_prompt full context returns mode full" \
   "full" 0 \
-  "from envelope_builder import build_prepared_prompt
-from classifier import Classification
+  "from classifier import build_prepared_prompt, Classification
 c = Classification('tiny','read_only_scan','flash','low','bypassPermissions','minimal',True)
 p, m = build_prepared_prompt('hi', c, 'full')
 print(m)"
@@ -934,7 +1037,8 @@ PYEOF
 test_invoker_py \
   "invoker module exists and imports" \
   "invoker OK" 0 \
-  "from invoker import InvokerConfig, invoke_claude, generate_mcp_config, start_heartbeat
+  "from invoker import InvokerConfig, invoke_claude, generate_mcp_config
+from heartbeat import start_heartbeat
 print('invoker OK')"
 
 test_invoker_py \
@@ -1060,15 +1164,15 @@ finally:
 test_invoker_py \
   "start_heartbeat zero interval returns None" \
   "heartbeat=None" 0 \
-  "from invoker import start_heartbeat
-h = start_heartbeat(0, 'pro', 'max', 'all', 'quiet')
+  "from heartbeat import start_heartbeat
+h = start_heartbeat(0)
 print('heartbeat={}'.format(h))"
 
 test_invoker_py \
   "start_heartbeat positive interval returns daemon thread" \
   "heartbeat_thread_daemon=True" 0 \
-  "from invoker import start_heartbeat
-h = start_heartbeat(1, 'pro', 'max', 'all', 'quiet')
+  "from heartbeat import start_heartbeat
+h = start_heartbeat(1, extra_fields={'model': 'pro', 'effort': 'max'}, prefix='Claude Code')
 print('heartbeat_thread_daemon={}'.format(h.daemon))"
 
 test_invoker_py \
@@ -1315,6 +1419,69 @@ finally:
             os.environ[key] = value
     os.unlink(capture.name)"
 
+# ---- opencode_invoker.py tests ----
+
+echo ""
+echo "=== opencode_invoker.py ==="
+
+test_opencode_invoker_py() {
+  local name="$1" expected_out="$2" expected_exit="$3"
+  local py_script; py_script=$(mktemp "$SANDBOX/opencode_invoker.XXXX.py")
+  cat > "$py_script" <<PYEOF
+import sys
+sys.path.insert(0, "$SCRIPT_DIR/../scripts")
+$4
+PYEOF
+  local outfile; outfile=$(mktemp "$SANDBOX/oi_out.XXXX")
+  local errfile; errfile=$(mktemp "$SANDBOX/oi_err.XXXX")
+  set +e
+  python3 "$py_script" > "$outfile" 2> "$errfile"
+  local rc=$?
+  set -e
+  if [ "$rc" -ne "$expected_exit" ]; then
+    echo "  FAIL  $name (exit $rc, expected $expected_exit)"
+    echo "        stderr: $(cat "$errfile")"
+    failed=$((failed+1))
+  elif [ -n "$expected_out" ] && ! grep -qF -e "$expected_out" "$outfile"; then
+    echo "  FAIL  $name (output missing: $expected_out)"
+    echo "        output: $(cat "$outfile")"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+  rm -f "$py_script" "$outfile" "$errfile"
+}
+
+test_opencode_invoker_py \
+  "opencode_invoker module imports" \
+  "opencode_invoker OK" 0 \
+  "from opencode_invoker import OpenCodeInvokerConfig, build_opencode_args, invoke_opencode; print('opencode_invoker OK')"
+
+test_opencode_invoker_py \
+  "build_opencode_args subagent_mode=off has no --agent" \
+  "--agent:False" 0 \
+  "from opencode_invoker import build_opencode_args, OpenCodeInvokerConfig
+c = OpenCodeInvokerConfig(model='pro', permission_mode='bypassPermissions', mcp_mode='all', subagent_mode='off', heartbeat_seconds=0, output_mode='quiet', prompt='test')
+args = build_opencode_args(c)
+print('--agent:{}'.format('--agent' in args))"
+
+test_opencode_invoker_py \
+  "build_opencode_args subagent_mode=on has --agent" \
+  "--agent:True" 0 \
+  "from opencode_invoker import build_opencode_args, OpenCodeInvokerConfig
+c = OpenCodeInvokerConfig(model='pro', permission_mode='bypassPermissions', mcp_mode='all', subagent_mode='on', heartbeat_seconds=0, output_mode='quiet', prompt='test')
+args = build_opencode_args(c)
+print('--agent:{}'.format('--agent' in args))"
+
+test_opencode_invoker_py \
+  "build_opencode_args bypassPermissions adds --dangerously-skip-permissions" \
+  "--dangerously-skip-permissions:True" 0 \
+  "from opencode_invoker import build_opencode_args, OpenCodeInvokerConfig
+c = OpenCodeInvokerConfig(model='pro', permission_mode='bypassPermissions', mcp_mode='all', subagent_mode='off', heartbeat_seconds=0, output_mode='quiet', prompt='test')
+args = build_opencode_args(c)
+print('--dangerously-skip-permissions:{}'.format('--dangerously-skip-permissions' in args))"
+
 # ---- mcp_server.py tests ----
 
 echo ""
@@ -1367,9 +1534,11 @@ spec = importlib.util.spec_from_file_location(
 )
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
-assert hasattr(mod, '_classification_to_dict')
-assert hasattr(mod, '_import_script')
+from classifier import classification_to_dict
 assert hasattr(mod, 'classify_task')
+assert hasattr(mod, 'format_jira_text')
+assert hasattr(mod, 'delegate_task')
+assert hasattr(mod, 'aggregate_profile')
 print('mcp_server OK')"
 
 test_mcp_server_py \
@@ -1387,17 +1556,11 @@ else:
     print('fastmcp_init_failed')"
 
 test_mcp_server_py \
-  "_classification_to_dict maps all fields" \
+  "classification_to_dict maps all fields" \
   "classification_to_dict OK" 0 \
-  "import importlib.util, os
-spec = importlib.util.spec_from_file_location(
-    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
-)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-from classifier import Classification
+  "from classifier import Classification, classification_to_dict
 c = Classification('small','code_edit','flash','medium','bypassPermissions','standard',True)
-d = mod._classification_to_dict(c)
+d = classification_to_dict(c)
 assert d['name'] == 'small'
 assert d['task_type'] == 'code_edit'
 assert d['model'] == 'flash'
@@ -1408,29 +1571,21 @@ assert d['use_template'] == True
 print('classification_to_dict OK')"
 
 test_mcp_server_py \
-  "_import_script loads hyphenated script jira-safe-text" \
+  "jira-safe-text direct import works" \
   "markdown_to_plain_OK" 0 \
-  "import importlib.util, os
-spec = importlib.util.spec_from_file_location(
-    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
-)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-jira = mod._import_script('jira-safe-text')
+  "import sys, os
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+import jira_safe_text as jira
 result = jira.markdown_to_plain('**bold** and *italic*')
 assert result == 'bold and italic'
 print('markdown_to_plain_OK')"
 
 test_mcp_server_py \
-  "_import_script loads compact-claude-stream parse_compact_output" \
+  "compact-claude-stream direct import parse_compact_output" \
   "compact_parse_OK" 0 \
-  "import importlib.util, os
-spec = importlib.util.spec_from_file_location(
-    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
-)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-compact = mod._import_script('compact-claude-stream')
+  "import sys, os
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+import compact_claude_stream as compact
 parsed = compact.parse_compact_output('{\"type\":\"result\",\"result\":\"done\",\"usage\":{\"input_tokens\":5,\"output_tokens\":10},\"total_cost_usd\":0.01,\"terminal_reason\":\"completed\"}')
 assert parsed['result'] == 'done'
 assert parsed['usage'] == {'input_tokens':5,'output_tokens':10}
@@ -1442,13 +1597,9 @@ print('compact_parse_OK')"
 test_mcp_server_py \
   "parse_compact_output handles stream-json with init event" \
   "stream_init_OK" 0 \
-  "import importlib.util, os
-spec = importlib.util.spec_from_file_location(
-    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
-)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-compact = mod._import_script('compact-claude-stream')
+  "import sys
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+import compact_claude_stream as compact
 parsed = compact.parse_compact_output(
     '{\"type\":\"system\",\"subtype\":\"init\",\"model\":\"stream-test\",\"effort\":\"max\"}\\n'
     '{\"type\":\"result\",\"result\":\"done\"}'
@@ -1462,13 +1613,9 @@ print('stream_init_OK')"
 test_mcp_server_py \
   "parse_compact_output no result returns empty" \
   "empty_result_OK" 0 \
-  "import importlib.util, os
-spec = importlib.util.spec_from_file_location(
-    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
-)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-compact = mod._import_script('compact-claude-stream')
+  "import sys
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+import compact_claude_stream as compact
 parsed = compact.parse_compact_output('{\"type\":\"tool_use\",\"name\":\"Read\"}')
 assert parsed['result'] == ''
 assert parsed['has_result'] == False
@@ -1477,17 +1624,9 @@ print('empty_result_OK')"
 test_mcp_server_py \
   "classify_task returns correct dict structure" \
   "classify_task_OK" 0 \
-  "from classifier import classify_prompt
-from pipeline import _resolve_auto
-import importlib.util, os
-spec = importlib.util.spec_from_file_location(
-    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
-)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-
+  "from classifier import classify_prompt, classification_to_dict
 c = classify_prompt('fix the README typo')
-d = mod._classification_to_dict(c)
+d = classification_to_dict(c)
 assert 'name' in d
 assert 'task_type' in d
 assert d['task_type'] == 'code_edit'
@@ -1496,30 +1635,21 @@ print('classify_task_OK')"
 test_mcp_server_py \
   "classify_task detects Jira operations" \
   "jira_detect_OK" 0 \
-  "from classifier import classify_prompt
-from pipeline import _resolve_auto
-import importlib.util, os
-spec = importlib.util.spec_from_file_location(
-    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
-)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
+  "import sys
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+from classifier import classify_prompt, classification_to_dict
 
 c = classify_prompt('mark CCDM-3 done in Jira')
-d = mod._classification_to_dict(c)
+d = classification_to_dict(c)
 assert d['task_type'] == 'jira_operation'
 print('jira_detect_OK')"
 
 test_mcp_server_py \
   "format_jira_text strips bold and italic" \
   "format_jira_OK" 0 \
-  "import importlib.util, os
-spec = importlib.util.spec_from_file_location(
-    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
-)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-jira = mod._import_script('jira-safe-text')
+  "import sys
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+import jira_safe_text as jira
 result = jira.markdown_to_plain('**bold** and *italic* text')
 assert result == 'bold and italic text'
 print('format_jira_OK')"
@@ -1527,13 +1657,9 @@ print('format_jira_OK')"
 test_mcp_server_py \
   "format_jira_text strips links" \
   "link_strip_OK" 0 \
-  "import importlib.util, os
-spec = importlib.util.spec_from_file_location(
-    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
-)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-jira = mod._import_script('jira-safe-text')
+  "import sys
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+import jira_safe_text as jira
 result = jira.markdown_to_plain('see [docs](https://x.com) here')
 assert result == 'see docs here'
 print('link_strip_OK')"
@@ -1553,9 +1679,8 @@ spec = importlib.util.spec_from_file_location(
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 
-from classifier import classify_prompt
+from classifier import classify_prompt, build_prepared_prompt
 from pipeline import _resolve_auto
-from envelope_builder import build_prepared_prompt
 from invoker import InvokerConfig, invoke_claude
 
 # Simulate delegate_task logic (without MCP wrapper)
@@ -1590,13 +1715,9 @@ print('delegate_pipeline_OK')"
 test_mcp_server_py \
   "aggregate_profile text format with temp JSONL" \
   "Records: 2" 0 \
-  "import importlib.util, os, tempfile
-spec = importlib.util.spec_from_file_location(
-    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
-)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-agg = mod._import_script('aggregate-profile-log')
+  "import sys, os, tempfile
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+import aggregate_profile_log as agg
 
 # Create temp JSONL
 f = tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False)
@@ -1613,13 +1734,9 @@ print(text[:100])"
 test_mcp_server_py \
   "aggregate_profile json format with temp JSONL" \
   "total_records" 0 \
-  "import importlib.util, os, tempfile, json
-spec = importlib.util.spec_from_file_location(
-    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
-)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-agg = mod._import_script('aggregate-profile-log')
+  "import sys, os, tempfile, json
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+import aggregate_profile_log as agg
 
 # Create temp JSONL
 f = tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False)
@@ -1640,13 +1757,9 @@ print('total_records: {}'.format(data['total_records']))"
 test_mcp_server_py \
   "aggregate_profile empty JSONL returns no records message" \
   "No records in profile log" 0 \
-  "import importlib.util, os, tempfile
-spec = importlib.util.spec_from_file_location(
-    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
-)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-agg = mod._import_script('aggregate-profile-log')
+  "import sys, os, tempfile
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+import aggregate_profile_log as agg
 
 # Empty file
 f = tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False)
@@ -1662,13 +1775,9 @@ print(text)"
 test_mcp_server_py \
   "aggregate_profile with usage and cost data" \
   "Cost:" 0 \
-  "import importlib.util, os, tempfile
-spec = importlib.util.spec_from_file_location(
-    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
-)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-agg = mod._import_script('aggregate-profile-log')
+  "import sys, os, tempfile
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+import aggregate_profile_log as agg
 
 f = tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False)
 f.write('{\"isError\":false,\"model\":\"pro\",\"effort\":\"max\",\"usage\":{\"input_tokens\":500,\"cache_read_input_tokens\":200,\"output_tokens\":300},\"totalCostUsd\":0.05}\\n')

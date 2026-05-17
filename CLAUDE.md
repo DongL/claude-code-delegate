@@ -12,9 +12,9 @@ When `$claude-code-delegate` is invoked, follow the gate checklist in `SKILL.md`
 - `scripts/run-claude-code.sh` — The wrapper that parses flags and delegates to the pipeline.
 - `scripts/pipeline.py` — The delegation pipeline: classify → envelope → invoke → compact → profile.
 - `scripts/run-pipeline.py` — Thin CLI entry point that the wrapper calls.
-- `scripts/compact-claude-stream.py` — Compacts JSON stream output into a readable report.
-- `scripts/aggregate-profile-log.py` — Aggregates CLAUDE_DELEGATE_PROFILE_LOG JSONL into a summary.
-- `scripts/jira-safe-text.py` — Strips Markdown for Jira MCP plain-text comments.
+- `scripts/compact_claude_stream.py` — Compacts JSON stream output into a readable report.
+- `scripts/aggregate_profile_log.py` — Aggregates CLAUDE_DELEGATE_PROFILE_LOG JSONL into a summary.
+- `scripts/jira_safe_text.py` — Strips Markdown for Jira MCP plain-text comments.
 - `tests/run_tests.sh` — Test runner (bash, no external deps).
 - `CONTEXT.md` — Domain glossary for the project.
 

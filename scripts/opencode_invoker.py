@@ -11,9 +11,10 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from logger import get_logger
+from heartbeat import start_heartbeat
 
 logger = get_logger("opencode_invoker")
 
@@ -68,134 +69,6 @@ def load_opencode_env(base_env: dict[str, str] | None = None) -> dict[str, str]:
     return child_env
 
 
-def _get_process_cpu_seconds(pid: int) -> int:
-    """Get cumulative CPU seconds for a process via ps. Returns -1 on failure."""
-    try:
-        result = subprocess.run(
-            ["ps", "-o", "time=", "-p", str(pid)],
-            capture_output=True,
-            text=True,
-            timeout=2,
-        )
-        output = result.stdout.strip()
-        if not output:
-            return -1
-        days = 0
-        if "-" in output:
-            days_str, output = output.split("-", 1)
-            days = int(days_str)
-        parts = output.split(":")
-        if len(parts) == 3:
-            h, m, s = parts
-            return days * 86400 + int(h) * 3600 + int(m) * 60 + int(float(s))
-        elif len(parts) == 2:
-            m, s = parts
-            return days * 86400 + int(m) * 60 + int(float(s))
-        else:
-            return -1
-    except Exception:
-        return -1
-
-
-def _format_duration(seconds: int) -> str:
-    """Format seconds as compact human-readable duration."""
-    if seconds < 60:
-        return f"{seconds}s"
-    h = seconds // 3600
-    m = (seconds % 3600) // 60
-    s = seconds % 60
-    if h:
-        return f"{h}h{m}m"
-    if s:
-        return f"{m}m{s}s"
-    return f"{m}m"
-
-
-def start_heartbeat(
-    interval_seconds: int,
-    model: str,
-    mcp_mode: str,
-    output_mode: str,
-    process: "subprocess.Popen[Any] | None" = None,
-    inactivity_timeout: int = 0,
-    get_last_activity: Callable[[], float] | None = None,
-) -> threading.Thread | None:
-    """Monitor an OpenCode subprocess: heartbeat + optional inactivity timeout."""
-    if interval_seconds == 0:
-        return None
-
-    start_time = time.monotonic()
-    last_cpu_time: int = -1
-    cpu_stall_start: float | None = None
-    killed: bool = False
-
-    if process is not None:
-        last_cpu_time = _get_process_cpu_seconds(process.pid)
-
-    def _monitor():
-        nonlocal last_cpu_time, cpu_stall_start, killed
-        while True:
-            threading.Event().wait(interval_seconds)
-            if process is not None and process.poll() is not None:
-                break
-
-            elapsed = int(time.monotonic() - start_time)
-            parts = [f"elapsed={_format_duration(elapsed)}"]
-
-            if process is not None:
-                cpu_time = _get_process_cpu_seconds(process.pid)
-                if cpu_time >= 0 and last_cpu_time >= 0:
-                    cpu_delta = cpu_time - last_cpu_time
-                    parts.append(f"cpu=+{cpu_delta}s")
-
-                    if cpu_delta == 0:
-                        if cpu_stall_start is None:
-                            cpu_stall_start = time.monotonic()
-                        stall_dur = int(time.monotonic() - cpu_stall_start)
-                        parts.append(f"cpu_stall={_format_duration(stall_dur)}")
-                    else:
-                        cpu_stall_start = None
-
-                    last_cpu_time = cpu_time
-
-            if get_last_activity is not None:
-                since_active = int(time.monotonic() - get_last_activity())
-                parts.append(f"active={_format_duration(since_active)}_ago")
-
-            parts.append(f"model={model}")
-            parts.append(f"mcp={mcp_mode}")
-            parts.append(f"mode={output_mode}")
-            parts.append("remaining=unlimited")
-
-            print(
-                f"OpenCode still running: {' '.join(parts)}",
-                file=sys.stderr,
-                flush=True,
-            )
-
-            if inactivity_timeout > 0 and cpu_stall_start is not None and process is not None:
-                stall_dur = time.monotonic() - cpu_stall_start
-                if stall_dur >= inactivity_timeout:
-                    print(
-                        f"OpenCode inactivity timeout "
-                        f"({_format_duration(int(stall_dur))} stall >= {_format_duration(inactivity_timeout)}), "
-                        f"sending SIGTERM...",
-                        file=sys.stderr,
-                        flush=True,
-                    )
-                    process.terminate()
-                    try:
-                        process.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                        process.wait()
-                    killed = True
-                    break
-
-    t = threading.Thread(target=_monitor, daemon=True)
-    return t
-
-
 def _normalize_model(model: str) -> str:
     """Strip provider prefix and context-window suffix for comparison."""
     raw = model.lower().strip()
@@ -240,8 +113,9 @@ def _validate_model(model: str) -> str:
         return "opencode/qwen3.6-plus-free"
     if not ALLOWED_MODELS:
         return _map_model_for_opencode(model)
-    if "/" not in normalized:
-        return f"opencode/{normalized}"
+    base = _normalize_model(model)
+    if "/" not in base:
+        return f"opencode/{base}"
     return model
 
 
@@ -258,7 +132,9 @@ def build_opencode_args(config: OpenCodeInvokerConfig) -> list[str]:
     if config.permission_mode == "bypassPermissions":
         args.append("--dangerously-skip-permissions")
 
-    # subagent_mode "off" means no --agent flag (use built-in default behavior)
+    if config.subagent_mode == "on":
+        args.append("--agent")
+        args.append("build")
 
     return args
 
@@ -324,12 +200,15 @@ def invoke_opencode(config: OpenCodeInvokerConfig) -> subprocess.CompletedProces
 
     monitor = start_heartbeat(
         interval_seconds=config.heartbeat_seconds,
-        model=config.model,
-        mcp_mode=config.mcp_mode,
-        output_mode=config.output_mode,
         process=process,
         inactivity_timeout=config.inactivity_timeout,
         get_last_activity=lambda: last_activity,
+        extra_fields={
+            "model": config.model,
+            "mcp": config.mcp_mode,
+            "mode": config.output_mode,
+        },
+        prefix="OpenCode",
     )
     if monitor:
         monitor.start()

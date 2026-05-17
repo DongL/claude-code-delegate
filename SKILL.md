@@ -67,7 +67,7 @@ While this skill is active, the orchestrator may inspect, plan, and review local
 
 ## Invocation
 
-Two transports are available, both using the same classifier, envelope builder, invoker, and compactor:
+Two transports are available, both using the same classifier (with built-in prompt envelope), invoker, and compactor modules:
 
 1. **MCP transport (preferred)** — Use the `delegate_task` tool when the `claude-code-delegate` MCP server is configured. Typed JSON-RPC, no shell needed. See [MCP Transport](#mcp-transport) below.
 2. **Shell wrapper (fallback)** — Use `run-claude-code.sh` when MCP is not available. Resolve via:
@@ -137,7 +137,7 @@ After Claude Code returns, show the user Claude Code's output. In quiet mode, sh
 
 ## Issue Tracker Integration
 
-When delegating Jira or issue tracker work, apply Jira-safe plain text formatting (no Markdown). See [docs/jira-workflow.md](docs/jira-workflow.md) for details and the `scripts/jira-safe-text.py` utility.
+When delegating Jira or issue tracker work, apply Jira-safe plain text formatting (no Markdown). See [docs/jira-workflow.md](docs/jira-workflow.md) for details and the `scripts/jira_safe_text.py` utility.
 
 ## Known Failure Modes
 
