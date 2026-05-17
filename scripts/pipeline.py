@@ -8,8 +8,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-from classifier import Classification, classify_prompt, FLASH_MODEL, PRO_MODEL, QWEN_MODEL
-from envelope_builder import build_prepared_prompt
+from classifier import Classification, classify_prompt, FLASH_MODEL, PRO_MODEL, QWEN_MODEL, build_prepared_prompt
 from invoker import InvokerConfig, invoke_claude
 from job_manager import (
     create_job_id,

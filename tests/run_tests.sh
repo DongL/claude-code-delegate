@@ -742,34 +742,10 @@ test_aggregator_no_file() {
 }
 test_aggregator_no_file
 
-# ---- envelope_builder.py tests ----
+# ---- classifier.py (envelope builder merged) tests ----
 
 echo ""
-echo "=== envelope_builder.py ==="
-
-ENVELOPE_BUILDER="$SCRIPT_DIR/../scripts/envelope_builder.py"
-
-# test_envelope name expected_stdout expected_exit python_stdin
-test_envelope() {
-  local name="$1" expected_out="$2" expected_exit="$3" stdin="$4"
-  local outfile; outfile=$(mktemp "$SANDBOX/eb_out.XXXX")
-  set +e
-  printf '%s' "$stdin" | python3 "$ENVELOPE_BUILDER" > "$outfile" 2>/dev/null
-  local rc=$?
-  set -e
-  if [ "$rc" -ne "$expected_exit" ]; then
-    echo "  FAIL  $name (exit $rc, expected $expected_exit)"
-    failed=$((failed+1))
-  elif [ -n "$expected_out" ] && ! grep -qF -e "$expected_out" "$outfile"; then
-    echo "  FAIL  $name (output missing: $expected_out)"
-    echo "        output: $(cat "$outfile")"
-    failed=$((failed+1))
-  else
-    echo "  PASS  $name"
-    passed=$((passed+1))
-  fi
-  rm -f "$outfile"
-}
+echo "=== classifier.py ==="
 
 # Unit tests for build_prepared_prompt via temp Python scripts.
 # Writes Python code into a temp .py file and executes it — avoids all shell quoting/expansion issues.
@@ -803,15 +779,14 @@ PYEOF
 }
 
 test_envelope_py \
-  "envelope_builder module exists and imports" \
-  "envelope_builder OK" 0 \
-  "from envelope_builder import build_prepared_prompt; print('envelope_builder OK')"
+  "classifier module exists and imports build_prepared_prompt" \
+  "classifier OK" 0 \
+  "from classifier import build_prepared_prompt; print('classifier OK')"
 
 test_envelope_py \
   "build_prepared_prompt read_only_scan template" \
   "Task Template: read-only scan" 0 \
-  "from envelope_builder import build_prepared_prompt
-from classifier import Classification
+  "from classifier import build_prepared_prompt, Classification
 c = Classification('tiny','read_only_scan','flash','low','bypassPermissions','minimal',True)
 p, m = build_prepared_prompt('check how many rows', c, 'auto')
 print(p)"
@@ -819,8 +794,7 @@ print(p)"
 test_envelope_py \
   "build_prepared_prompt code_edit template" \
   "Task Template: code edit" 0 \
-  "from envelope_builder import build_prepared_prompt
-from classifier import Classification
+  "from classifier import build_prepared_prompt, Classification
 c = Classification('small','code_edit','flash','medium','bypassPermissions','standard',True)
 p, m = build_prepared_prompt('fix a bug', c, 'auto')
 print(p)"
@@ -828,8 +802,7 @@ print(p)"
 test_envelope_py \
   "build_prepared_prompt jira_operation template" \
   "Task Template: Jira operation" 0 \
-  "from envelope_builder import build_prepared_prompt
-from classifier import Classification
+  "from classifier import build_prepared_prompt, Classification
 c = Classification('small','jira_operation','flash','medium','bypassPermissions','standard',True)
 p, m = build_prepared_prompt('mark CCDM-3 done', c, 'auto')
 print(p)"
@@ -837,8 +810,7 @@ print(p)"
 test_envelope_py \
   "build_prepared_prompt architecture_review template" \
   "Task Template: architecture review" 0 \
-  "from envelope_builder import build_prepared_prompt
-from classifier import Classification
+  "from classifier import build_prepared_prompt, Classification
 c = Classification('large','architecture_review','pro','max','bypassPermissions','expanded',True)
 p, m = build_prepared_prompt('architecture refactor', c, 'auto')
 print(p)"
@@ -846,8 +818,7 @@ print(p)"
 test_envelope_py \
   "build_prepared_prompt unrecognized task_type uses envelope fallback" \
   "Task Context Envelope" 0 \
-  "from envelope_builder import build_prepared_prompt
-from classifier import Classification
+  "from classifier import build_prepared_prompt, Classification
 c = Classification('custom','unrecognized_type','pro','max','bypassPermissions','full',True)
 p, m = build_prepared_prompt('hello world', c, 'auto')
 print(p)"
@@ -855,8 +826,7 @@ print(p)"
 test_envelope_py \
   "build_prepared_prompt full context_mode returns prompt unchanged" \
   "hello world" 0 \
-  "from envelope_builder import build_prepared_prompt
-from classifier import Classification
+  "from classifier import build_prepared_prompt, Classification
 c = Classification('tiny','read_only_scan','flash','low','bypassPermissions','minimal',True)
 p, m = build_prepared_prompt('hello world', c, 'full')
 print(p)"
@@ -864,8 +834,7 @@ print(p)"
 test_envelope_py \
   "build_prepared_prompt non-template classification returns full" \
   "original text here" 0 \
-  "from envelope_builder import build_prepared_prompt
-from classifier import Classification
+  "from classifier import build_prepared_prompt, Classification
 c = Classification('default','unknown','pro','max','bypassPermissions','full',False)
 p, m = build_prepared_prompt('original text here', c, 'auto')
 print(p)"
@@ -873,8 +842,7 @@ print(p)"
 test_envelope_py \
   "build_prepared_prompt jira returns mode template" \
   "template" 0 \
-  "from envelope_builder import build_prepared_prompt
-from classifier import Classification
+  "from classifier import build_prepared_prompt, Classification
 c = Classification('small','jira_operation','flash','medium','bypassPermissions','standard',True)
 p, m = build_prepared_prompt('mark it done', c, 'auto')
 print(m)"
@@ -882,8 +850,7 @@ print(m)"
 test_envelope_py \
   "build_prepared_prompt envelope returns mode envelope" \
   "envelope" 0 \
-  "from envelope_builder import build_prepared_prompt
-from classifier import Classification
+  "from classifier import build_prepared_prompt, Classification
 c = Classification('custom','unrecognized_type','pro','max','bypassPermissions','full',True)
 p, m = build_prepared_prompt('hi', c, 'auto')
 print(m)"
@@ -891,8 +858,7 @@ print(m)"
 test_envelope_py \
   "build_prepared_prompt full context returns mode full" \
   "full" 0 \
-  "from envelope_builder import build_prepared_prompt
-from classifier import Classification
+  "from classifier import build_prepared_prompt, Classification
 c = Classification('tiny','read_only_scan','flash','low','bypassPermissions','minimal',True)
 p, m = build_prepared_prompt('hi', c, 'full')
 print(m)"
@@ -1556,9 +1522,8 @@ spec = importlib.util.spec_from_file_location(
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 
-from classifier import classify_prompt
+from classifier import classify_prompt, build_prepared_prompt
 from pipeline import _resolve_auto
-from envelope_builder import build_prepared_prompt
 from invoker import InvokerConfig, invoke_claude
 
 # Simulate delegate_task logic (without MCP wrapper)

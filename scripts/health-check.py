@@ -20,7 +20,7 @@ _REQUIRED_SCRIPTS = [
     "invoker.py",
     "compact-claude-stream.py",
     "classifier.py",
-    "envelope_builder.py",
+    "heartbeat.py",
     "run-pipeline.py",
 ]
 
