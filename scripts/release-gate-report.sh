@@ -34,7 +34,7 @@ echo ""
 
 echo "Profiling Metadata:"
 if [ -n "${CLAUDE_DELEGATE_PROFILE_LOG:-}" ] && [ -f "$CLAUDE_DELEGATE_PROFILE_LOG" ]; then
-  python3 "$SCRIPT_DIR/aggregate-profile-log.py" "$CLAUDE_DELEGATE_PROFILE_LOG"
+  python3 "$SCRIPT_DIR/aggregate_profile_log.py" "$CLAUDE_DELEGATE_PROFILE_LOG"
 else
   echo "  not available (CLAUDE_DELEGATE_PROFILE_LOG not set or file absent)"
 fi
