@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from logger import get_logger
-from heartbeat import _get_process_cpu_seconds, _format_duration, start_heartbeat
+from heartbeat import start_heartbeat
 
 logger = get_logger("invoker")
 

@@ -500,7 +500,9 @@ else
 fi
 rm -f "$outfile"
 
-profile_log="$SANDBOX/profile.jsonl"
+# Profile logging is consolidated to pipeline.py (CCDM-35).
+# The compact script no longer writes profile records — verify it does not.
+profile_log="$SANDBOX/profile_no_write.jsonl"
 outfile=$(mktemp "$SANDBOX/cs_out.XXXX")
 set +e
 printf '%s' '{"type":"result","result":"ok","usage":{"input_tokens":5},"total_cost_usd":0.1}' | \
@@ -512,17 +514,149 @@ printf '%s' '{"type":"result","result":"ok","usage":{"input_tokens":5},"total_co
 rc=$?
 set -e
 if [ "$rc" -ne 0 ]; then
-  echo "  FAIL  profile jsonl logging (exit $rc, expected 0)"
+  echo "  FAIL  compact script no longer does profile logging (exit $rc, expected 0)"
   failed=$((failed+1))
-elif ! grep -qF -e '"class": "small"' "$profile_log" || ! grep -qF -e '"input_tokens": 5' "$profile_log"; then
-  echo "  FAIL  profile jsonl logging (missing expected record)"
-  echo "        log: $(cat "$profile_log" 2>/dev/null || true)"
+elif [ -f "$profile_log" ]; then
+  echo "  FAIL  compact script should not write profile log (CCDM-35)"
   failed=$((failed+1))
 else
-  echo "  PASS  profile jsonl logging"
+  echo "  PASS  compact script delegates profile logging to pipeline (CCDM-35)"
   passed=$((passed+1))
 fi
 rm -f "$outfile"
+
+# ---- claude_adapter.py unit tests ----
+
+echo ""
+echo "=== claude_adapter.py ==="
+
+test_adapter_py() {
+  local name="$1" expected_out="$2" expected_exit="$3"
+  local py_script; py_script=$(mktemp "$SANDBOX/adapter_script.XXXX.py")
+  cat > "$py_script" <<PYEOF
+import sys
+sys.path.insert(0, "$SCRIPT_DIR/../scripts")
+$4
+PYEOF
+  local outfile; outfile=$(mktemp "$SANDBOX/adapter_out.XXXX")
+  local errfile; errfile=$(mktemp "$SANDBOX/adapter_err.XXXX")
+  set +e
+  python3 "$py_script" > "$outfile" 2> "$errfile"
+  local rc=$?
+  set -e
+  if [ "$rc" -ne "$expected_exit" ]; then
+    echo "  FAIL  $name (exit $rc, expected $expected_exit)"
+    echo "        stderr: $(cat "$errfile")"
+    failed=$((failed+1))
+  elif [ -n "$expected_out" ] && ! grep -qF -e "$expected_out" "$outfile"; then
+    echo "  FAIL  $name (output missing: $expected_out)"
+    echo "        output: $(cat "$outfile")"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+  rm -f "$py_script" "$outfile" "$errfile"
+}
+
+test_adapter_py \
+  "claude_adapter module imports" \
+  "claude_adapter OK" 0 \
+  "from claude_adapter import parse_claude_events, _deserialize; print('claude_adapter OK')"
+
+test_adapter_py \
+  "claude_adapter parses init event" \
+  "model: claude-sonnet-4" 0 \
+  "from claude_adapter import parse_claude_events
+result = parse_claude_events([{'type':'system','subtype':'init','model':'claude-sonnet-4'}])
+print('model: {}'.format(result['model']))"
+
+test_adapter_py \
+  "claude_adapter parses result event" \
+  "result: done" 0 \
+  "from claude_adapter import parse_claude_events
+result = parse_claude_events([{'type':'result','result':'done','usage':{'input_tokens':5}}])
+print('result: {}'.format(result['result']))"
+
+test_adapter_py \
+  "claude_adapter parses usage" \
+  "input_tokens: 5" 0 \
+  "from claude_adapter import parse_claude_events
+result = parse_claude_events([{'type':'result','result':'ok','usage':{'input_tokens':5,'output_tokens':10}}])
+print('input_tokens: {}'.format(result['usage'].get('input_tokens')))"
+
+test_adapter_py \
+  "claude_adapter has_init flag" \
+  "has_init: True" 0 \
+  "from claude_adapter import parse_claude_events
+result = parse_claude_events([{'type':'system','subtype':'init','model':'m'},{'type':'result','result':'ok'}])
+print('has_init: {}'.format(result['has_init']))"
+
+test_adapter_py \
+  "claude_adapter deserializes newline-delimited JSON" \
+  "count: 2" 0 \
+  "from claude_adapter import _deserialize
+events = _deserialize('{\"type\":\"init\"}\n{\"type\":\"result\"}')
+print('count: {}'.format(len(events)))"
+
+test_adapter_py \
+  "claude_adapter deserializes single JSON object" \
+  "count: 1" 0 \
+  "from claude_adapter import _deserialize
+events = _deserialize('{\"type\":\"result\",\"result\":\"ok\"}')
+print('count: {}'.format(len(events)))"
+
+# ---- opencode_adapter.py unit tests ----
+
+echo ""
+echo "=== opencode_adapter.py ==="
+
+test_adapter_py \
+  "opencode_adapter module imports" \
+  "opencode_adapter OK" 0 \
+  "from opencode_adapter import parse_opencode_events, _deserialize; print('opencode_adapter OK')"
+
+test_adapter_py \
+  "opencode_adapter parses text event" \
+  "result: Hello" 0 \
+  "from opencode_adapter import parse_opencode_events
+result = parse_opencode_events([{'type':'text','part':{'type':'text','text':'Hello'}}])
+print('result: {}'.format(result['result']))"
+
+test_adapter_py \
+  "opencode_adapter parses step_finish with usage" \
+  "input_tokens: 100" 0 \
+  "from opencode_adapter import parse_opencode_events
+result = parse_opencode_events([{'type':'step_finish','part':{'tokens':{'input':100,'output':50},'cost':0.01}}])
+print('input_tokens: {}'.format(result['usage'].get('input_tokens')))"
+
+test_adapter_py \
+  "opencode_adapter parses error event" \
+  "is_error: True" 0 \
+  "from opencode_adapter import parse_opencode_events
+result = parse_opencode_events([{'type':'error','error':{'data':{'message':'Auth failed'}}}])
+print('is_error: {}'.format(result['is_error']))"
+
+test_adapter_py \
+  "opencode_adapter parses cost" \
+  "cost_usd: 0.01" 0 \
+  "from opencode_adapter import parse_opencode_events
+result = parse_opencode_events([{'type':'step_finish','part':{'tokens':{},'cost':0.01}}])
+print('cost_usd: {}'.format(result['cost_usd']))"
+
+test_adapter_py \
+  "opencode_adapter has_init is False" \
+  "has_init: False" 0 \
+  "from opencode_adapter import parse_opencode_events
+result = parse_opencode_events([{'type':'text','part':{'type':'text','text':'hi'}}])
+print('has_init: {}'.format(result['has_init']))"
+
+test_adapter_py \
+  "opencode_adapter deserializes event stream" \
+  "count: 3" 0 \
+  "from opencode_adapter import _deserialize
+events = _deserialize('{\"type\":\"step_start\"}\n{\"type\":\"text\",\"part\":{\"type\":\"text\",\"text\":\"hi\"}}\n{\"type\":\"step_finish\",\"part\":{}}')
+print('count: {}'.format(len(events)))"
 
 test_compact "empty input exit 1" 1 "" ""
 
@@ -903,7 +1037,8 @@ PYEOF
 test_invoker_py \
   "invoker module exists and imports" \
   "invoker OK" 0 \
-  "from invoker import InvokerConfig, invoke_claude, generate_mcp_config, start_heartbeat
+  "from invoker import InvokerConfig, invoke_claude, generate_mcp_config
+from heartbeat import start_heartbeat
 print('invoker OK')"
 
 test_invoker_py \
@@ -1283,6 +1418,69 @@ finally:
         if value is not None:
             os.environ[key] = value
     os.unlink(capture.name)"
+
+# ---- opencode_invoker.py tests ----
+
+echo ""
+echo "=== opencode_invoker.py ==="
+
+test_opencode_invoker_py() {
+  local name="$1" expected_out="$2" expected_exit="$3"
+  local py_script; py_script=$(mktemp "$SANDBOX/opencode_invoker.XXXX.py")
+  cat > "$py_script" <<PYEOF
+import sys
+sys.path.insert(0, "$SCRIPT_DIR/../scripts")
+$4
+PYEOF
+  local outfile; outfile=$(mktemp "$SANDBOX/oi_out.XXXX")
+  local errfile; errfile=$(mktemp "$SANDBOX/oi_err.XXXX")
+  set +e
+  python3 "$py_script" > "$outfile" 2> "$errfile"
+  local rc=$?
+  set -e
+  if [ "$rc" -ne "$expected_exit" ]; then
+    echo "  FAIL  $name (exit $rc, expected $expected_exit)"
+    echo "        stderr: $(cat "$errfile")"
+    failed=$((failed+1))
+  elif [ -n "$expected_out" ] && ! grep -qF -e "$expected_out" "$outfile"; then
+    echo "  FAIL  $name (output missing: $expected_out)"
+    echo "        output: $(cat "$outfile")"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+  rm -f "$py_script" "$outfile" "$errfile"
+}
+
+test_opencode_invoker_py \
+  "opencode_invoker module imports" \
+  "opencode_invoker OK" 0 \
+  "from opencode_invoker import OpenCodeInvokerConfig, build_opencode_args, invoke_opencode; print('opencode_invoker OK')"
+
+test_opencode_invoker_py \
+  "build_opencode_args subagent_mode=off has no --agent" \
+  "--agent:False" 0 \
+  "from opencode_invoker import build_opencode_args, OpenCodeInvokerConfig
+c = OpenCodeInvokerConfig(model='pro', permission_mode='bypassPermissions', mcp_mode='all', subagent_mode='off', heartbeat_seconds=0, output_mode='quiet', prompt='test')
+args = build_opencode_args(c)
+print('--agent:{}'.format('--agent' in args))"
+
+test_opencode_invoker_py \
+  "build_opencode_args subagent_mode=on has --agent" \
+  "--agent:True" 0 \
+  "from opencode_invoker import build_opencode_args, OpenCodeInvokerConfig
+c = OpenCodeInvokerConfig(model='pro', permission_mode='bypassPermissions', mcp_mode='all', subagent_mode='on', heartbeat_seconds=0, output_mode='quiet', prompt='test')
+args = build_opencode_args(c)
+print('--agent:{}'.format('--agent' in args))"
+
+test_opencode_invoker_py \
+  "build_opencode_args bypassPermissions adds --dangerously-skip-permissions" \
+  "--dangerously-skip-permissions:True" 0 \
+  "from opencode_invoker import build_opencode_args, OpenCodeInvokerConfig
+c = OpenCodeInvokerConfig(model='pro', permission_mode='bypassPermissions', mcp_mode='all', subagent_mode='off', heartbeat_seconds=0, output_mode='quiet', prompt='test')
+args = build_opencode_args(c)
+print('--dangerously-skip-permissions:{}'.format('--dangerously-skip-permissions' in args))"
 
 # ---- mcp_server.py tests ----
 

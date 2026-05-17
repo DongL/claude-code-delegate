@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
-"""Compact Claude Code stream-json into a reviewable final report."""
+"""Compact Claude Code stream-json into a reviewable final report.
+
+Delegates parsing to per-backend adapters:
+- claude_adapter: Claude Code stream-json (init/result events)
+- opencode_adapter: OpenCode event stream (text/step_finish/error events)
+"""
 
 from __future__ import annotations
 
 import json
 import os
 import sys
-from datetime import datetime, timezone
 from typing import Any
 
-from profile_logger import append_profile_record, build_profile_record
+from claude_adapter import parse_claude_events, _deserialize as _claude_deserialize
+from opencode_adapter import parse_opencode_events, _deserialize as _opencode_deserialize
 
 
 def _fmt_usage(usage: dict[str, Any]) -> str:
@@ -27,133 +32,44 @@ def _fmt_usage(usage: dict[str, Any]) -> str:
     return ", ".join(parts)
 
 
+def _is_opencode_format(events: list[dict[str, Any]]) -> bool:
+    """Detect OpenCode format by presence of text/step_finish/error event types."""
+    opencode_types = {"text", "step_finish", "error"}
+    return any(e.get("type") in opencode_types for e in events)
+
+
 def parse_compact_output(raw_json: str) -> dict[str, Any]:
     """Parse raw JSON output into a structured dict.
 
-    Handles two formats:
+    Detects the backend format and delegates to the appropriate adapter:
     - Claude Code: single JSON or newline-delimited stream-json.
     - OpenCode: event stream with text, step_finish, and error events.
     Returns result text, usage, cost, model, effort, and other metadata.
     """
-    init: dict[str, Any] | None = None
-    result: dict[str, Any] | None = None
-    errors: list[str] = []
-    opencode_texts: list[str] = []
-    opencode_usage: dict[str, Any] = {}
-    opencode_cost: float = 0.0
-    opencode_is_error: bool = False
+    claude_events = _claude_deserialize(raw_json)
+    opencode_events = _opencode_deserialize(raw_json)
 
-    events: list[dict[str, Any]] = []
-    try:
-        parsed = json.loads(raw_json)
-        if isinstance(parsed, dict):
-            events.append(parsed)
-        elif isinstance(parsed, list):
-            events.extend(item for item in parsed if isinstance(item, dict))
-    except json.JSONDecodeError:
-        for line in raw_json.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                errors.append(line[:500])
-                continue
-            if isinstance(event, dict):
-                events.append(event)
-
-    for event in events:
-        event_type = event.get("type")
-        if event_type == "system" and event.get("subtype") == "init":
-            init = event
-        elif event_type == "result":
-            result = event
-        elif "result" in event or "usage" in event:
-            result = event
-        elif event.get("is_error") is True:
-            errors.append(json.dumps(event, ensure_ascii=False)[:1000])
-        elif event_type == "text":
-            part = event.get("part", {})
-            if isinstance(part, dict) and part.get("type") == "text":
-                text = part.get("text", "")
-                if text:
-                    opencode_texts.append(text)
-        elif event_type == "step_finish":
-            part = event.get("part", {})
-            if isinstance(part, dict):
-                tokens = part.get("tokens")
-                if isinstance(tokens, dict):
-                    mapped: dict[str, int] = {}
-                    if "input" in tokens:
-                        mapped["input_tokens"] = tokens["input"]
-                    if "output" in tokens:
-                        mapped["output_tokens"] = tokens["output"]
-                    cache_info = tokens.get("cache")
-                    if isinstance(cache_info, dict):
-                        read_val = cache_info.get("read", 0)
-                        if isinstance(read_val, int) and read_val > 0:
-                            mapped["cache_read_input_tokens"] = read_val
-                    thinking_val = tokens.get("thinking")
-                    if isinstance(thinking_val, int):
-                        mapped["thinking_tokens"] = thinking_val
-                    opencode_usage = mapped
-                cost = part.get("cost")
-                if isinstance(cost, (int, float)):
-                    opencode_cost = cost
-                result = {"result": "", "usage": opencode_usage, "total_cost_usd": opencode_cost}
-        elif event_type == "error":
-            err_data = event.get("error", {})
-            msg = ""
-            if isinstance(err_data, dict):
-                inner = err_data.get("data", {})
-                if isinstance(inner, dict):
-                    msg = inner.get("message", "")
-                if not msg:
-                    msg = err_data.get("message", "")
-            if msg:
-                errors.append(msg)
-            opencode_is_error = True
-
-    is_opencode = bool(opencode_texts) or opencode_is_error or bool(opencode_usage)
-
-    model = (init or {}).get("model") or os.environ.get("CLAUDE_DELEGATE_OBSERVED_MODEL")
-    effort = (init or {}).get("effort") or os.environ.get("CLAUDE_DELEGATE_OBSERVED_EFFORT")
-    permission_mode = (init or {}).get("permissionMode") or os.environ.get(
-        "CLAUDE_DELEGATE_OBSERVED_PERMISSION_MODE"
-    )
-    mcp_mode = (init or {}).get("mcpMode") or os.environ.get(
-        "CLAUDE_DELEGATE_OBSERVED_MCP_MODE"
-    )
-
-    result_text = (result or {}).get("result") or ""
-    if is_opencode:
-        result_text = "".join(opencode_texts)
-        cost_usd = opencode_cost
-        usage = opencode_usage if opencode_usage else (result or {}).get("usage")
+    if _is_opencode_format(opencode_events):
+        result = parse_opencode_events(opencode_events)
     else:
-        usage = (result or {}).get("usage")
-        cost_usd = (result or {}).get("total_cost_usd", 0.0)
+        result = parse_claude_events(claude_events)
+        # Merge any deserialization errors from the Claude path
+        if not result.get("errors"):
+            raw_errors: list[str] = []
+            try:
+                json.loads(raw_json)
+            except json.JSONDecodeError:
+                for line in raw_json.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        json.loads(line)
+                    except json.JSONDecodeError:
+                        raw_errors.append(line[:500])
+            result["errors"] = raw_errors
 
-    is_error = bool((result or {}).get("is_error")) or opencode_is_error
-    terminal_reason = (result or {}).get("terminal_reason") or ""
-    cwd = (init or {}).get("cwd") or os.environ.get("CLAUDE_DELEGATE_OBSERVED_CWD")
-
-    return {
-        "result": result_text,
-        "usage": usage if isinstance(usage, dict) else {},
-        "cost_usd": cost_usd if isinstance(cost_usd, (int, float)) else 0.0,
-        "terminal_reason": terminal_reason,
-        "model": model,
-        "effort": effort,
-        "permission_mode": permission_mode,
-        "mcp_mode": mcp_mode,
-        "cwd": cwd,
-        "is_error": is_error,
-        "has_init": init is not None,
-        "has_result": bool(opencode_texts) or result is not None,
-        "errors": errors,
-    }
+    return result
 
 
 def main() -> int:
@@ -252,29 +168,6 @@ def main() -> int:
         terminal_reason = result.get("terminal_reason")
         if terminal_reason:
             print(f"- terminal_reason={terminal_reason}")
-
-    profile_log = os.environ.get("CLAUDE_DELEGATE_PROFILE_LOG")
-    if profile_log:
-        result_dict = result if isinstance(result, dict) else {}
-        record = build_profile_record(
-            model=model,
-            effort=effort,
-            permission_mode=permission_mode,
-            mcp_mode=mcp_mode,
-            task_class=task_class,
-            task_type=task_type,
-            context_budget=context_budget,
-            prompt_mode=prompt_mode,
-            prompt_template=prompt_template,
-            original_prompt_chars=int(original_prompt_chars or 0),
-            prepared_prompt_chars=int(prepared_prompt_chars or 0),
-            prompt_reduction_pct=int(prompt_reduction_pct or 0),
-            usage=result_dict.get("usage"),
-            total_cost_usd=result_dict.get("total_cost_usd"),
-            terminal_reason=result_dict.get("terminal_reason"),
-            is_error=bool(result_dict.get("is_error")) if result_dict else bool(errors),
-        )
-        append_profile_record(record, profile_log)
 
     if errors:
         if has_init or has_result:
