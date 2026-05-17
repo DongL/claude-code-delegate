@@ -210,13 +210,13 @@ def _normalize_model(model: str) -> str:
 
 
 CLAUDE_CODE_MODEL_MAP: dict[str, str] = {
-    "deepseek-v4-flash": "deepseek/deepseek-v4-flash",
-    "deepseek-v4-flash-free": "deepseek/deepseek-v4-flash",
+    "deepseek-v4-flash": "deepseek/deepseek-v4-flash-free",
+    "deepseek-v4-flash-free": "deepseek/deepseek-v4-flash-free",
     "deepseek-v4-pro": "deepseek/deepseek-chat",
     "deepseek-v4-pro-free": "deepseek/deepseek-chat",
-    "claude-sonnet-4": "deepseek/deepseek-v4-flash",
-    "claude-sonnet-4-6": "deepseek/deepseek-v4-flash",
-    "claude-haiku-4": "deepseek/deepseek-v4-flash",
+    "claude-sonnet-4": "deepseek/deepseek-v4-flash-free",
+    "claude-sonnet-4-6": "deepseek/deepseek-v4-flash-free",
+    "claude-haiku-4": "deepseek/deepseek-v4-flash-free",
     "claude-opus-4": "deepseek/deepseek-chat",
 }
 

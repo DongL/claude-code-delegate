@@ -161,7 +161,7 @@ test_case "default bypassPermissions" 0 "--permission-mode bypassPermissions" "t
 
 test_case "default disables subagents" 0 "--disallowedTools Task Agent" "test prompt"
 
-test_case "--flash flag" 0 "--model deepseek-v4-flash[1m]" --flash "test prompt"
+test_case "--flash flag" 0 "--model deepseek-v4-flash-free[1m]" --flash "test prompt"
 
 test_case "--pro flag" 0 "--model deepseek-v4-pro[1m]" --pro "test prompt"
 
@@ -201,11 +201,11 @@ test_runner_stdout "quiet report shows Prompt section" "Prompt" "check how many 
 
 test_runner_stdout "quiet report shows prompt mode" "mode: template" "check how many rows are in pattern_data"
 
-test_case "tiny task routes to flash" 0 "--model deepseek-v4-flash[1m]" "check how many rows are in pattern_data"
+test_case "tiny task routes to flash" 0 "--model deepseek-v4-flash-free[1m]" "check how many rows are in pattern_data"
 
 test_case "tiny task uses low effort" 0 "--effort low" "check how many rows are in pattern_data"
 
-test_case "routine edit routes to flash" 0 "--model deepseek-v4-flash[1m]" "fix the README typo"
+test_case "routine edit routes to flash" 0 "--model deepseek-v4-flash-free[1m]" "fix the README typo"
 
 test_case "routine edit uses medium effort" 0 "--effort medium" "fix the README typo"
 

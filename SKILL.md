@@ -79,6 +79,7 @@ Fallback: run scripts/run-claude-code.sh <prompt> from the skill directory.
 | `--start` | — | Launch in background, return job_id JSON (async mode). |
 | `--poll JOB_ID` | — | Poll async job status. |
 | `--pro` / `--flash` | `CLAUDE_DELEGATE_MODEL` | Model selection |
+| `--qwen` | `CLAUDE_DELEGATE_MODEL` | Qwen model selection |
 | `--effort VALUE` | `CLAUDE_DELEGATE_EFFORT` | Reasoning budget |
 | `--quiet` / `--stream` | `CLAUDE_DELEGATE_OUTPUT_MODE` | Output format |
 | `--bypass` / `--interactive` | `CLAUDE_DELEGATE_PERMISSION_MODE` | Permission handling |
