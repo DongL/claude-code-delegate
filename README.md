@@ -59,6 +59,8 @@ flowchart LR
     CT -->|result + cost| Codex
 ```
 
+The diagram spans five areas. **Orchestrator** — Codex/GPT plans and reviews; Claude Code/OpenCode executes. **Entry Points** — MCP transport (JSON-RPC over stdio, preferred) and shell wrapper (fallback). **Pipeline** — five stages: classify (model + effort), envelope (prompt template), invoke (Claude Code or OpenCode), compact (structured result), profile (JSONL log). **Executor Backends** — Claude Code CLI and OpenCode CLI. **Model Providers** — DeepSeek V4 Pro and Flash primary; Qwen as OpenCode fallback.
+
 ## What This Is / Is Not
 
 | This project is... | This project is not... |
@@ -471,6 +473,8 @@ flowchart LR
     P -->|⑤| PL
     CT -->|result + cost| Codex
 ```
+
+该图涵盖五部分。**编排器** — Codex/GPT 负责规划和审查；Claude Code/OpenCode 执行。**入口** — MCP 传输（stdio JSON-RPC，推荐）和 shell wrapper（后备）。**流水线** — 五阶段：分类（model + effort）、包装（prompt 模板）、调用（Claude Code 或 OpenCode）、压缩（结构化结果）、画像（JSONL 日志）。**执行器后端** — Claude Code CLI 和 OpenCode CLI。**模型提供商** — DeepSeek V4 Pro 和 Flash 为主力；Qwen 作为 OpenCode 后备。
 
 ## 这是什么 / 不是什么
 

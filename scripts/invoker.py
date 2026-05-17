@@ -370,6 +370,7 @@ def _launch_claude_code_async(
 
     return subprocess.Popen(
         [*args, config.prompt],
+        stdin=subprocess.DEVNULL,
         stdout=stdout_fh,
         stderr=stderr_fh,
         env=child_env,
@@ -508,6 +509,7 @@ def _invoke_claude_code(config: InvokerConfig) -> subprocess.CompletedProcess[An
 
         process = subprocess.Popen(
             [*args, config.prompt],
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env=child_env,

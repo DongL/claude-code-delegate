@@ -181,7 +181,7 @@ def _handle_exec() -> int:
         print()
         print("Usage")
         parts = []
-        for key in ("input_tokens", "cache_read_input_tokens", "output_tokens"):
+        for key in ("input_tokens", "cache_read_input_tokens", "output_tokens", "thinking_tokens"):
             val = usage.get(key)
             if isinstance(val, int):
                 parts.append(f"{key}={val}")

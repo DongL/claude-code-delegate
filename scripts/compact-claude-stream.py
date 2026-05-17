@@ -14,7 +14,7 @@ from profile_logger import append_profile_record, build_profile_record
 
 def _fmt_usage(usage: dict[str, Any]) -> str:
     parts = []
-    for key in ("input_tokens", "cache_read_input_tokens", "output_tokens"):
+    for key in ("input_tokens", "cache_read_input_tokens", "output_tokens", "thinking_tokens"):
         value = usage.get(key)
         if isinstance(value, int):
             parts.append(f"{key}={value}")
@@ -94,6 +94,9 @@ def parse_compact_output(raw_json: str) -> dict[str, Any]:
                         read_val = cache_info.get("read", 0)
                         if isinstance(read_val, int) and read_val > 0:
                             mapped["cache_read_input_tokens"] = read_val
+                    thinking_val = tokens.get("thinking")
+                    if isinstance(thinking_val, int):
+                        mapped["thinking_tokens"] = thinking_val
                     opencode_usage = mapped
                 cost = part.get("cost")
                 if isinstance(cost, (int, float)):
