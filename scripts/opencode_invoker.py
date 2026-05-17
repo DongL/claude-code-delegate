@@ -113,6 +113,7 @@ def _validate_model(model: str) -> str:
         return "opencode/qwen3.6-plus-free"
     if not ALLOWED_MODELS:
         return _map_model_for_opencode(model)
+    base = _normalize_model(model)
     if "/" not in base:
         return f"opencode/{base}"
     return model
