@@ -65,6 +65,36 @@ def _resolve_auto(value: str, fallback: str) -> str:
     return value if value != "auto" else fallback
 
 
+def _resolve_pipeline_config(
+    model_tier: str,
+    effort: str,
+    permission_mode: str,
+    mcp_mode: str,
+    context_mode: str,
+    subagent_mode: str,
+    classification: Classification,
+) -> dict[str, str]:
+    """Resolve all auto parameters from env vars or classification fallback."""
+    model = _resolve_model(model_tier, classification)
+    resolved_effort = effort if effort != "auto" else os.environ.get("CLAUDE_DELEGATE_EFFORT", "auto")
+    final_effort = _resolve_auto(resolved_effort, classification.effort)
+    resolved_permission = permission_mode if permission_mode != "auto" else os.environ.get("CLAUDE_DELEGATE_PERMISSION_MODE", "auto")
+    final_permission = _resolve_auto(resolved_permission, classification.permission_mode)
+    resolved_mcp = mcp_mode if mcp_mode != "all" else os.environ.get("CLAUDE_DELEGATE_MCP_MODE", "all")
+    resolved_context = context_mode if context_mode != "auto" else os.environ.get("CLAUDE_DELEGATE_CONTEXT_MODE", "auto")
+    resolved_subagents = subagent_mode if subagent_mode != "off" else (
+        "on" if os.environ.get("CLAUDE_DELEGATE_SUBAGENTS", "").lower() == "on" else "off"
+    )
+    return {
+        "model": model,
+        "effort": final_effort,
+        "permission_mode": final_permission,
+        "mcp_mode": resolved_mcp,
+        "context_mode": resolved_context,
+        "subagent_mode": resolved_subagents,
+    }
+
+
 def _classification_to_dict(c: Classification) -> dict[str, Any]:
     return {
         "name": c.name,
@@ -112,16 +142,15 @@ def run_delegation_pipeline(
     )
 
     # 2. Resolve overrides — env var consulted only when parameter is "auto"
-    model = _resolve_model(model_tier, classification)
-    resolved_effort = effort if effort != "auto" else os.environ.get("CLAUDE_DELEGATE_EFFORT", "auto")
-    final_effort = _resolve_auto(resolved_effort, classification.effort)
-    resolved_permission = permission_mode if permission_mode != "auto" else os.environ.get("CLAUDE_DELEGATE_PERMISSION_MODE", "auto")
-    final_permission = _resolve_auto(resolved_permission, classification.permission_mode)
-    resolved_mcp = mcp_mode if mcp_mode != "all" else os.environ.get("CLAUDE_DELEGATE_MCP_MODE", "all")
-    resolved_context = context_mode if context_mode != "auto" else os.environ.get("CLAUDE_DELEGATE_CONTEXT_MODE", "auto")
-    resolved_subagents = subagent_mode if subagent_mode != "off" else (
-        "on" if os.environ.get("CLAUDE_DELEGATE_SUBAGENTS", "").lower() == "on" else "off"
+    resolved = _resolve_pipeline_config(
+        model_tier, effort, permission_mode, mcp_mode, context_mode, subagent_mode, classification,
     )
+    model = resolved["model"]
+    final_effort = resolved["effort"]
+    final_permission = resolved["permission_mode"]
+    resolved_mcp = resolved["mcp_mode"]
+    resolved_context = resolved["context_mode"]
+    resolved_subagents = resolved["subagent_mode"]
 
     # 3. Build prepared prompt
     final_prompt, prompt_mode = build_prepared_prompt(prompt, classification, resolved_context)
@@ -288,15 +317,14 @@ def start_delegation_async(
         model=classification.model,
     )
 
-    model = _resolve_model(model_tier, classification)
-    resolved_effort = effort if effort != "auto" else os.environ.get("CLAUDE_DELEGATE_EFFORT", "auto")
-    final_effort = _resolve_auto(resolved_effort, classification.effort)
-    resolved_permission = permission_mode if permission_mode != "auto" else os.environ.get("CLAUDE_DELEGATE_PERMISSION_MODE", "auto")
-    final_permission = _resolve_auto(resolved_permission, classification.permission_mode)
-    resolved_mcp = mcp_mode if mcp_mode != "all" else os.environ.get("CLAUDE_DELEGATE_MCP_MODE", "all")
-    resolved_subagents = subagent_mode if subagent_mode != "off" else (
-        "on" if os.environ.get("CLAUDE_DELEGATE_SUBAGENTS", "").lower() == "on" else "off"
+    resolved = _resolve_pipeline_config(
+        model_tier, effort, permission_mode, mcp_mode, context_mode, subagent_mode, classification,
     )
+    model = resolved["model"]
+    final_effort = resolved["effort"]
+    final_permission = resolved["permission_mode"]
+    resolved_mcp = resolved["mcp_mode"]
+    resolved_subagents = resolved["subagent_mode"]
 
     final_prompt, _ = build_prepared_prompt(prompt, classification, context_mode)
 
