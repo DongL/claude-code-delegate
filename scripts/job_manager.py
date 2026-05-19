@@ -177,6 +177,52 @@ def _read_tail(path: Path, max_bytes: int = 2000) -> str:
         return ""
 
 
+def cleanup_expired_jobs(retention_days: int | None = None) -> int:
+    """Remove job directories older than retention_days.
+
+    Returns the count of removed jobs.
+    CLAUDE_DELEGATE_RETENTION_DAYS env var overrides the default (7).
+    A value of 0 or negative disables cleanup.
+    """
+    if retention_days is None:
+        try:
+            retention_days = int(os.environ.get("CLAUDE_DELEGATE_RETENTION_DAYS", "7"))
+        except (ValueError, TypeError):
+            retention_days = 7
+
+    if retention_days <= 0:
+        return 0
+
+    import shutil
+    from datetime import datetime, timezone, timedelta
+
+    jobs_dir = get_jobs_dir()
+    if not jobs_dir.exists():
+        return 0
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+    removed = 0
+
+    for d in sorted(jobs_dir.iterdir()):
+        if not d.is_dir():
+            continue
+        meta = read_job_meta(d.name)
+        if meta is None:
+            continue
+        started_at = meta.get("started_at", "")
+        try:
+            job_time = datetime.fromisoformat(started_at)
+        except (ValueError, TypeError):
+            continue
+        if job_time.tzinfo is None:
+            job_time = job_time.replace(tzinfo=timezone.utc)
+        if job_time < cutoff:
+            shutil.rmtree(str(d), ignore_errors=True)
+            removed += 1
+
+    return removed
+
+
 def get_job_status(job_id: str) -> dict[str, Any]:
     """Return current status of a job.
 

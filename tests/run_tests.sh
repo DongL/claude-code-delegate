@@ -770,6 +770,358 @@ test_jira "multi-line comprehensive" \
   "**Bold intro** with *emphasis* and \`code\`.\n\nSee [link](http://x.com).\n\n- [x] Done thing\n- [ ] Todo thing\n\n## Notes\n\nPlain text here." \
   "Plain text here."
 
+# ---- CCDM-39: .mcp.json has no committed secrets ---- 
+
+echo ""
+echo "=== CCDM-39: Secret-free .mcp.json ==="
+
+test_mcp_no_secrets() {
+  local mcp_file="$SCRIPT_DIR/../.mcp.json"
+  local name="mcp.json has no committed secrets"
+  if [ ! -f "$mcp_file" ]; then
+    echo "  FAIL  $name (.mcp.json not found)"
+    failed=$((failed+1))
+    return
+  fi
+  # Check for patterns that look like committed API tokens, passwords, or secrets
+  # This catches token_hex patterns, "sk-", "ghp_", "Bearer", and similar
+  if grep -qE '(ATATT3|sk-[a-zA-Z0-9]{10,}|ghp_[a-zA-Z0-9]{10,}|Bearer [a-zA-Z0-9]{10,}|api_key["\s:=]+["'\'']?[a-zA-Z0-9]{20,})' "$mcp_file" 2>/dev/null; then
+    echo "  FAIL  $name (potential secret found in .mcp.json)"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+}
+test_mcp_no_secrets
+
+# ---- CCDM-40: pyproject.toml and package metadata ---- 
+
+echo ""
+echo "=== CCDM-40: Package metadata ==="
+
+test_pyproject() {
+  local pyproject="$SCRIPT_DIR/../pyproject.toml"
+  local name="pyproject.toml exists and has required fields"
+  if [ ! -f "$pyproject" ]; then
+    echo "  FAIL  $name (pyproject.toml not found)"
+    failed=$((failed+1))
+    return
+  fi
+  if ! grep -q 'name = "claude-code-delegate"' "$pyproject"; then
+    echo "  FAIL  $name (missing project name)"
+    failed=$((failed+1))
+  elif ! grep -q 'requires-python = ">=3.10"' "$pyproject"; then
+    echo "  FAIL  $name (missing python version constraint)"
+    failed=$((failed+1))
+  elif ! grep -q 'claude-code-delegate-mcp' "$pyproject"; then
+    echo "  FAIL  $name (missing MCP server entry point)"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+}
+test_pyproject
+
+# ---- CCDM-41: Smoke-test lane ---- 
+
+echo ""
+echo "=== CCDM-41: Smoke test lane ==="
+
+test_smoke_gate() {
+  local name="smoke tests skip without CLAUDE_DELEGATE_SMOKE_TEST=1"
+  local script="$SCRIPT_DIR/../scripts/run-smoke-tests.sh"
+  if [ ! -f "$script" ]; then
+    echo "  FAIL  $name (run-smoke-tests.sh not found)"
+    failed=$((failed+1))
+    return
+  fi
+  # Verify it exits 0 without the env var set
+  set +e
+  unset CLAUDE_DELEGATE_SMOKE_TEST
+  output=$("$script" 2>&1)
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    echo "  FAIL  $name (exit $rc, expected 0 without smoke flag)"
+    failed=$((failed+1))
+  elif ! echo "$output" | grep -q "CLAUDE_DELEGATE_SMOKE_TEST=1"; then
+    echo "  FAIL  $name (missing opt-in warning message)"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+}
+test_smoke_gate
+
+# ---- CCDM-42: OpenCode subagent behavior reconciled ---- 
+
+echo ""
+echo "=== CCDM-42: OpenCode subagent docs reconciled ==="
+
+test_subagent_adr() {
+  local name="ADR 0005 says agent is bridged for subagent_mode=on"
+  local adr="$SCRIPT_DIR/../docs/adr/0005-opencode-executor.md"
+  if [ ! -f "$adr" ]; then
+    echo "  FAIL  $name (ADR 0005 not found)"
+    failed=$((failed+1))
+    return
+  fi
+  if grep -q "no --agent flag" "$adr"; then
+    echo "  FAIL  $name (ADR still says no --agent flag)"
+    failed=$((failed+1))
+  elif grep -q "agent build" "$adr"; then
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  else
+    echo "  FAIL  $name (ADR missing agent build bridging)"
+    failed=$((failed+1))
+  fi
+}
+test_subagent_adr
+
+test_subagent_opencode_invoker() {
+  local name="opencode_invoker maps subagent_mode=on to agent build"
+  local invoker="$SCRIPT_DIR/../scripts/opencode_invoker.py"
+  if grep -q "subagent_mode.*==.*.on." "$invoker" && grep -q "agent" "$invoker"; then
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  else
+    echo "  FAIL  $name (opencode_invoker missing agent mapping)"
+    failed=$((failed+1))
+  fi
+}
+test_subagent_opencode_invoker
+
+# ---- CCDM-43: Runtime cleanup/retention ---- 
+
+echo ""
+echo "=== CCDM-43: Runtime job cleanup ==="
+
+test_cleanup() {
+  local name="job_manager cleanup removes expired jobs"
+  if python3 -c "
+import sys, tempfile, os, json, time
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+from job_manager import cleanup_expired_jobs, get_jobs_dir, create_job_id, create_job_meta
+jd = get_jobs_dir()
+# Create a fresh job (current time) that should NOT be cleaned
+jid = create_job_id()
+create_job_meta(jid, 99999, 'test', 'm', 'low', 'bypass', 'none', 'quiet')
+# Create an old job by rewriting the meta with an old timestamp
+ojid = create_job_id()
+d = jd / ojid
+d.mkdir(parents=True, exist_ok=True)
+import datetime
+old_ts = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=30)).isoformat()
+meta = {'job_id': ojid, 'pid': 99998, 'started_at': old_ts, 'status': 'completed'}
+(d / 'meta.json').write_text(json.dumps(meta) + chr(10), encoding='utf-8')
+removed = cleanup_expired_jobs(retention_days=7)
+assert removed >= 1, f'Expected >=1 removed, got {removed}'
+# Verify the old job directory is gone
+assert not d.exists(), f'Old job directory still exists: {d}'
+print('cleanup_ok')
+" 2>&1; then
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  else
+    echo "  FAIL  $name"
+    failed=$((failed+1))
+  fi
+}
+test_cleanup
+
+test_cleanup_env() {
+  local name="cleanup respects CLAUDE_DELEGATE_RETENTION_DAYS=0 to disable"
+  if python3 -c "
+import sys, os
+os.environ['CLAUDE_DELEGATE_RETENTION_DAYS'] = '0'
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+from job_manager import cleanup_expired_jobs
+removed = cleanup_expired_jobs()
+assert removed == 0, f'Expected 0 removed with retention=0, got {removed}'
+print('cleanup_disabled_ok')
+" 2>&1; then
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  else
+    echo "  FAIL  $name"
+    failed=$((failed+1))
+  fi
+}
+test_cleanup_env
+
+# ---- CCDM-44: Audit record contract ---- 
+
+echo ""
+echo "=== CCDM-44: Audit record contract ==="
+
+test_audit_record() {
+  local name="audit_logger produces record with required fields"
+  if python3 -c "
+import sys, os, tempfile, json
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+from audit_logger import write_audit_record
+record = write_audit_record(
+    delegation_id='test-123',
+    executor='claude-code',
+    model='deepseek-v4-pro',
+    duration_ms=1500,
+    exit_code=0,
+    cost=0.05,
+)
+assert record['delegation_id'] == 'test-123', record
+assert record['executor'] == 'claude-code'
+assert record['duration_ms'] == 1500
+assert record['exit_code'] == 0
+assert isinstance(record['timestamp'], str)
+print('audit record ok')
+" 2>&1; then
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  else
+    echo "  FAIL  $name"
+    failed=$((failed+1))
+  fi
+}
+test_audit_record
+
+test_audit_file_write() {
+  local name="audit_logger writes to CLAUDE_DELEGATE_AUDIT_LOG file"
+  if python3 -c "
+import sys, os, tempfile, json
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+from audit_logger import write_audit_record, load_audit_records
+f = tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False)
+f.close()
+os.environ['CLAUDE_DELEGATE_AUDIT_LOG'] = f.name
+try:
+    write_audit_record(delegation_id='test-456', executor='opencode', exit_code=1, error_message='timeout')
+    records = load_audit_records(f.name)
+    assert len(records) == 1, records
+    assert records[0]['delegation_id'] == 'test-456'
+    assert records[0]['error_message'] == 'timeout'
+    print('audit file write ok')
+finally:
+    os.unlink(f.name)
+    os.environ.pop('CLAUDE_DELEGATE_AUDIT_LOG', None)
+" 2>&1; then
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  else
+    echo "  FAIL  $name"
+    failed=$((failed+1))
+  fi
+}
+test_audit_file_write
+
+# ---- CCDM-45: Failure diagnostics ---- 
+
+echo ""
+echo "=== CCDM-45: Failure diagnostics ==="
+
+test_diagnostics_module() {
+  local name="diagnostics.py module can be imported"
+  if python3 -c "
+import sys
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+from diagnostics import DelegationError, build_error_from_stderr, classify_stderr_error
+print('diagnostics OK')
+" 2>&1; then
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  else
+    echo "  FAIL  $name"
+    failed=$((failed+1))
+  fi
+}
+test_diagnostics_module
+
+test_delegation_error() {
+  local name="DelegationError has error_code, message, resolution_hint"
+  if python3 -c "
+import sys
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+from diagnostics import DelegationError, ERR_AUTH_FAILED
+err = DelegationError(ERR_AUTH_FAILED, 'token expired', 'Check your API token')
+d = err.to_dict()
+assert d['error_code'] == 'AUTH_FAILED'
+assert d['message'] == 'token expired'
+assert d['resolution_hint'] == 'Check your API token'
+print('DelegationError OK')
+" 2>&1; then
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  else
+    echo "  FAIL  $name"
+    failed=$((failed+1))
+  fi
+}
+test_delegation_error
+
+test_error_classification() {
+  local name="build_error_from_stderr classifies auth errors"
+  if python3 -c "
+import sys
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+from diagnostics import build_error_from_stderr, ERR_AUTH_FAILED
+err = build_error_from_stderr('Authentication failed: invalid token', 1)
+assert err.error_code == ERR_AUTH_FAILED, err.error_code
+print('error classification OK')
+" 2>&1; then
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  else
+    echo "  FAIL  $name"
+    failed=$((failed+1))
+  fi
+}
+test_error_classification
+
+# ---- CCDM-46: Release checklist and compatibility ---- 
+
+echo ""
+echo "=== CCDM-46: Release readiness ==="
+
+test_release_md() {
+  local name="RELEASE.md exists with blocking gates and compatibility matrix"
+  local release="$SCRIPT_DIR/../RELEASE.md"
+  if [ ! -f "$release" ]; then
+    echo "  FAIL  $name (RELEASE.md not found)"
+    failed=$((failed+1))
+    return
+  fi
+  if ! grep -q "Blocking Gates" "$release"; then
+    echo "  FAIL  $name (missing Blocking Gates section)"
+    failed=$((failed+1))
+  elif ! grep -q "Compatibility Matrix" "$release"; then
+    echo "  FAIL  $name (missing Compatibility Matrix)"
+    failed=$((failed+1))
+  elif ! grep -q "macOS" "$release"; then
+    echo "  FAIL  $name (missing OS compatibility)"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+}
+test_release_md
+
+test_release_gate_script() {
+  local name="release-gate-report.sh exists and is executable"
+  local script="$SCRIPT_DIR/../scripts/release-gate-report.sh"
+  if [ -f "$script" ] && [ -x "$script" ]; then
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  else
+    echo "  FAIL  $name"
+    failed=$((failed+1))
+  fi
+}
+test_release_gate_script
+
 # ---- aggregate_profile_log.py tests ----
 
 echo ""

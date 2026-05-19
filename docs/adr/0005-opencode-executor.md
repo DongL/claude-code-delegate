@@ -113,14 +113,16 @@ The mapping happens inside `build_opencode_args()` in `opencode_invoker.py`. The
 
 Other permission modes (`acceptEdits`, `bypassApprovals`) are not mapped because OpenCode does not support a `--permission-mode` flag. Only `bypassPermissions` (the default mode used by the delegation pipeline) is bridged.
 
-### D5: No --agent flag for subagent_mode
+### D5: --agent flag bridged for subagent_mode=on
 
-Claude Code controls subagent spawning via `--disallowedTools "Task Agent"` (off) or default behavior (on). OpenCode does not have an `--agent` equivalent. The `subagent_mode` field is accepted in `OpenCodeInvokerConfig` but deliberately not mapped — no `--agent` flag is added to the `opencode run` command.
+Claude Code controls subagent spawning via `--disallowedTools "Task Agent"` (off) or default behavior (on). OpenCode accepts `--agent build` to explicitly enable subagents (the `build` mode tells OpenCode to plan and execute with subagent support). The delegation bridge:
+- `subagent_mode="off"` (default): no `--agent` flag is added for OpenCode. The pipeline does not actively suppress subagents (OpenCode's default allows them), but it does not enable them either.
+- `subagent_mode="on"` (`--allow-subagents`): `--agent build` is appended to the `opencode run` command, mirroring how `--disallowedTools "Task Agent"` is omitted from the Claude Code invocation.
 
 Rationale:
-- Adding a hypothetical `--agent` flag would be implementing a feature that does not exist in the target tool.
-- OpenCode's default behavior is to allow subagents. Users who want subagents off when using OpenCode must disable them via OpenCode's own configuration, not through the delegation pipeline.
-- If OpenCode later adds subagent control, this decision can be revisited with a single code change.
+- OpenCode's default behavior allows subagents. The `off` case takes no action, matching the default.
+- The `on` case maps to `--agent build`, which is the documented way to enable subagents in OpenCode.
+- The off-to-on asymmetry (Claude Code explicitly disables when off; OpenCode explicitly enables when on) is a consequence of different defaults in the two backends.
 
 ### D6: Environment config bridging
 
@@ -150,18 +152,22 @@ This is a known asymmetry. The Qwen tier exists because it is the preferred free
 
 - **No effort control**: OpenCode does not support `--effort`. Users who rely on per-task reasoning budgets lose this dimension when using the OpenCode backend. Mitigation: the model provider can be configured with a fixed reasoning budget independently.
 - **No MCP config passing**: OpenCode does not support `--mcp-config` or `--strict-mcp-config`. Delegations that require specific MCP servers must configure them through OpenCode's own config files. This is a significant gap if the orchestrator dynamically selects MCP servers per task.
-- **No subagent control**: The pipeline cannot disable subagents in OpenCode. Users who want subagents off must configure this outside the delegation pipeline.
+- **No subagent disable for OpenCode**: The pipeline cannot disable subagents in OpenCode (no `--disallowedTools` equivalent). Users who want subagents off when using OpenCode must rely on OpenCode's default being subagent-allowing, or configure this outside the delegation pipeline. The `off` case takes no action; the `on` case adds `--agent build`.
 - **No stream-json output**: OpenCode's event stream is parsed post-hoc. Real-time streaming is not supported for the OpenCode backend.
 - **Model map maintenance**: `CLAUDE_CODE_MODEL_MAP` is a static dictionary that must be updated when new model IDs are added. It is not auto-discovered from either backend.
 - **Duplicated heartbeat**: Two copies of the monitor loop (one per backend) must be kept in sync when changes are made.
 
 ## Open Questions
 
-### OQ1: subagent_mode=on behavior
+### OQ1: subagent_mode=on behavior (resolved)
 
-When `subagent_mode="on"` and `executor="opencode"`, the pipeline currently takes no action (no `--agent` flag, no `--disallowedTools`). OpenCode's default behavior allows subagents. Is this the desired behavior, or should the pipeline actively signal "subagents allowed" in case OpenCode later adds a flag for it?
+When `subagent_mode="on"` and `executor="opencode"`, the pipeline now appends `--agent build` to the `opencode run` command. This was added when `--agent build` became available in OpenCode. The `off` case takes no action, relying on OpenCode's default (subagents allowed).
 
-Current stance: do nothing until OpenCode adds explicit subagent control. The "on" case matches the default, so no action is needed.
+The Claude Code backend inverts the pattern: `off` explicitly disables via `--disallowedTools "Task Agent"` (because Claude Code's default also allows subagents), while `on` simply omits the restriction.
+
+This asymmetry means there is no way to actively disable subagents for the OpenCode backend through the delegation pipeline — OpenCode does not offer a `--disallowedTools` equivalent. Users who need subagents off when using OpenCode must configure this at the OpenCode level.
+
+Current stance: resolved. The `--agent build` bridge covers the `on` case. The `off` case (no action) matches OpenCode's default.
 
 ### OQ2: ALLOWED_MODELS future use
 
