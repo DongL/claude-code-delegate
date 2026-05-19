@@ -13,6 +13,7 @@ When `$claude-code-delegate` is invoked, follow the gate checklist in `SKILL.md`
 - `scripts/pipeline.py` — The delegation pipeline: classify → envelope → invoke → compact → profile.
 - `scripts/run-pipeline.py` — Thin CLI entry point that the wrapper calls.
 - `scripts/compact_claude_stream.py` — Compacts JSON stream output into a readable report.
+- `scripts/create-adr-summary.js` — Generates a PowerPoint summary of ADRs.
 - `scripts/aggregate_profile_log.py` — Aggregates CLAUDE_DELEGATE_PROFILE_LOG JSONL into a summary.
 - `scripts/jira_safe_text.py` — Strips Markdown for Jira MCP plain-text comments.
 - `tests/run_tests.sh` — Test runner (bash, no external deps).
@@ -49,7 +50,7 @@ bash scripts/run-claude-code.sh --flash "test prompt"
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **claude-code-delegate** (831 symbols, 1304 relationships, 52 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **claude-code-delegate** (905 symbols, 1424 relationships, 63 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

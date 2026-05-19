@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "claude-code-delegate"
+version = "0.2.0"
+description = "Delegate orchestrator-authored implementation plans to Claude Code or OpenCode"
+readme = "README.md"
+license = {text = "MIT"}
+keywords = ["claude-code", "opencode", "delegate", "mcp", "ai-coding"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.0"]
+dev = []
+
+[project.urls]
+Homepage = "https://github.com/DongL/claude-code-delegate"
+Repository = "https://github.com/DongL/claude-code-delegate"
+
+[project.scripts]
+claude-code-delegate-mcp = "scripts.mcp_server:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["scripts*"]
+
+[tool.setuptools.package-data]
+scripts = ["*.py"]
