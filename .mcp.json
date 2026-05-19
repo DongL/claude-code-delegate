@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "claude-code-delegate": {
+      "command": "python3",
+      "args": ["scripts/mcp_server.py"]
+    },
+    "jira": {
+      "command": "node",
+      "args": [
+        "jira-mcp-server/index.js"
+      ],
+      "env": {
+        "JIRA_BASE_URL": "${JIRA_BASE_URL}",
+        "JIRA_USER_EMAIL": "${JIRA_USER_EMAIL}",
+        "JIRA_API_TOKEN": "${JIRA_API_TOKEN}"
+      }
+    },
+    "gitnexus": {
+      "command": "npx",
+      "args": ["gitnexus", "mcp"]
+    }
+  }
+}
