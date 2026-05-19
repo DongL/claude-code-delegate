@@ -5,7 +5,6 @@ __pycache__/
 .tmp/
 .DS_Store
 logs/
-.mcp.json
 .claude-delegate/
 autoresearch-claude-code-delegate/
 docs/prd/
