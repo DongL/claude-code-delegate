@@ -3,8 +3,13 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from typing import Any
+
+_scripts_root = os.path.dirname(os.path.abspath(__file__))
+if _scripts_root not in sys.path:
+    sys.path.insert(0, _scripts_root)
 
 try:
     from mcp.server.fastmcp import FastMCP
@@ -100,5 +105,9 @@ async def aggregate_profile(
         return {"text_summary": _agg_mod.format_text(result)}
 
 
-if __name__ == "__main__":
+def main() -> None:
     server.run()
+
+
+if __name__ == "__main__":
+    main()

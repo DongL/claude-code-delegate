@@ -287,7 +287,7 @@ Correction iterations repeat steps 2–5 until the diff is correct.
 
 **Model specialization.** Planning calls for broad context and high-level reasoning. Execution calls for precision and speed. No single model is best at both. Delegation lets you pair a strong planning model (Codex, Opus) with a fast execution model (DeepSeek V4 Flash, Haiku) — $0.28/delegation vs. $3–$5 on premium-tier models.
 
-**Safety boundary.** The execution plan defines which files may be touched and which commands may run. Subagents are disabled by default for both Claude Code (via `--disallowedTools Task Agent`) and OpenCode (via no `--agent` flag). Pass `--allow-subagents` to enable. A heartbeat confirms the executor is still alive during long tasks. The executor cannot silently refactor the codebase or revert unrelated changes.
+**Safety boundary.** The execution plan defines which files may be touched and which commands may run. Subagents are disabled by default for Claude Code (via `--disallowedTools Task Agent`). For OpenCode, the default takes no action (OpenCode's default allows subagents); passing `--allow-subagents` adds `--agent build` to explicitly enable subagents. A heartbeat confirms the executor is still alive during long tasks. The executor cannot silently refactor the codebase or revert unrelated changes.
 
 **Consistent invocation.** Model, effort, permissions, and MCP config are identical across every delegation — no flag drift between tasks. Profile metadata accumulates for trend analysis over time.
 
