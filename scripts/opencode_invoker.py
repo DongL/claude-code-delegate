@@ -139,6 +139,42 @@ def build_opencode_args(config: OpenCodeInvokerConfig) -> list[str]:
     return args
 
 
+def build_opencode_mcp_env(mcp_mode: str) -> dict[str, str]:
+    """Build env vars for MCP configuration in OpenCode.
+
+    OpenCode has no --mcp-config CLI flag.  MCP servers are discovered from
+    config files, so we inject them through OPENCODE_CONFIG_CONTENT.
+    """
+    if mcp_mode == "all":
+        return {}
+
+    if mcp_mode == "none":
+        return {"OPENCODE_CONFIG_CONTENT": json.dumps({"mcpServers": {}})}
+
+    from invoker import resolve_mcp_config_path
+
+    source = resolve_mcp_config_path(mcp_mode)
+    if source is None:
+        raise ValueError(
+            f"MCP mode '{mcp_mode}' requires a config path, but none found"
+        )
+
+    config = json.loads(Path(source).read_text(encoding="utf-8"))
+    mcp_servers = config.get("mcpServers", {})
+    if mcp_mode not in mcp_servers:
+        raise ValueError(
+            f"MCP server '{mcp_mode}' not found in {source}"
+        )
+
+    server_config = dict(mcp_servers[mcp_mode])
+    server_config.pop("env", None)
+    return {
+        "OPENCODE_CONFIG_CONTENT": json.dumps(
+            {"mcpServers": {mcp_mode: server_config}}
+        )
+    }
+
+
 def launch_opencode_async(
     config: OpenCodeInvokerConfig,
     stdout_path: str,
@@ -147,6 +183,7 @@ def launch_opencode_async(
     """Launch OpenCode in the background with stdout/stderr written to files."""
     args = build_opencode_args(config)
     child_env = load_opencode_env()
+    child_env.update(build_opencode_mcp_env(config.mcp_mode))
 
     stdout_fh = open(stdout_path, "w", encoding="utf-8")
     stderr_fh = open(stderr_path, "w", encoding="utf-8")
@@ -170,6 +207,7 @@ def invoke_opencode(config: OpenCodeInvokerConfig) -> subprocess.CompletedProces
 
     args = build_opencode_args(config)
     child_env = load_opencode_env()
+    child_env.update(build_opencode_mcp_env(config.mcp_mode))
 
     if config.output_mode == "stream":
         # OpenCode doesn't have a stream-json mode; fall back to default format
