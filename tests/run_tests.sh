@@ -1485,6 +1485,35 @@ finally:
     os.unlink(f.name)"
 
 test_invoker_py \
+  "resolve_mcp_config_path prefers user config over cwd config" \
+  "resolved_user_config" 0 \
+  "from invoker import resolve_mcp_config_path
+from pathlib import Path
+home = tempfile.mkdtemp()
+cwd = tempfile.mkdtemp()
+old_home = os.environ.get('HOME')
+old_cwd = os.getcwd()
+old_explicit = os.environ.pop('CLAUDE_DELEGATE_MCP_CONFIG_PATH', None)
+try:
+    os.environ['HOME'] = home
+    os.chdir(cwd)
+    Path('.mcp.json').write_text(json.dumps({'mcpServers': {'jira': {'command': 'cwd-jira'}}}))
+    user_config = Path(home) / '.claude' / 'mcp.json'
+    user_config.parent.mkdir(parents=True)
+    user_config.write_text(json.dumps({'mcpServers': {'jira': {'command': 'user-jira'}}}))
+    resolved = resolve_mcp_config_path('jira')
+    assert resolved == str(user_config), resolved
+    print('resolved_user_config')
+finally:
+    os.chdir(old_cwd)
+    if old_home is not None:
+        os.environ['HOME'] = old_home
+    else:
+        os.environ.pop('HOME', None)
+    if old_explicit is not None:
+        os.environ['CLAUDE_DELEGATE_MCP_CONFIG_PATH'] = old_explicit"
+
+test_invoker_py \
   "resolve_mcp_config_path skips cwd config missing requested server" \
   "resolved_user_config" 0 \
   "from invoker import resolve_mcp_config_path
@@ -1833,6 +1862,68 @@ test_opencode_invoker_py \
 c = OpenCodeInvokerConfig(model='pro', permission_mode='bypassPermissions', mcp_mode='all', subagent_mode='off', heartbeat_seconds=0, output_mode='quiet', prompt='test')
 args = build_opencode_args(c)
 print('--dangerously-skip-permissions:{}'.format('--dangerously-skip-permissions' in args))"
+
+test_opencode_invoker_py \
+  "build_opencode_mcp_env mode=all returns empty dict" \
+  "MCP_ALL_OK" 0 \
+  "from opencode_invoker import build_opencode_mcp_env
+result = build_opencode_mcp_env('all')
+assert result == {}, f'expected empty dict, got {result}'
+print('MCP_ALL_OK')"
+
+test_opencode_invoker_py \
+  "build_opencode_mcp_env mode=none returns empty mcpServers" \
+  "MCP_NONE_OK" 0 \
+  "import json
+from opencode_invoker import build_opencode_mcp_env
+result = build_opencode_mcp_env('none')
+assert 'OPENCODE_CONFIG_CONTENT' in result
+content = json.loads(result['OPENCODE_CONFIG_CONTENT'])
+assert content.get('mcpServers') == {}
+print('MCP_NONE_OK')"
+
+test_opencode_invoker_py \
+  "build_opencode_mcp_env mode=specific resolves and filters mcp config" \
+  "MCP_SPECIFIC_OK" 0 \
+  "import json, os, tempfile, pathlib
+from opencode_invoker import build_opencode_mcp_env
+
+# Create a temp .mcp.json with a test server
+d = tempfile.mkdtemp()
+mcp_file = pathlib.Path(d) / 'test.json'
+mcp_file.write_text(json.dumps({
+    'mcpServers': {
+        'jira': {'command': 'node', 'args': ['jira.js']},
+        'linear': {'command': 'node', 'args': ['linear.js']}
+    }
+}))
+
+os.environ['CLAUDE_DELEGATE_MCP_CONFIG_PATH'] = str(mcp_file)
+try:
+    result = build_opencode_mcp_env('jira')
+    assert 'OPENCODE_CONFIG_CONTENT' in result
+    content = json.loads(result['OPENCODE_CONFIG_CONTENT'])
+    servers = content.get('mcpServers', {})
+    assert 'jira' in servers
+    assert 'linear' not in servers
+    assert servers['jira']['command'] == 'node'
+    assert servers['jira']['args'] == ['jira.js']
+    print('MCP_SPECIFIC_OK')
+finally:
+    del os.environ['CLAUDE_DELEGATE_MCP_CONFIG_PATH']
+    import shutil
+    shutil.rmtree(d)"
+
+test_opencode_invoker_py \
+  "build_opencode_mcp_env mode=none has empty mcpServers" \
+  "MCP_NONE_CONTENT_OK" 0 \
+  "import json
+from opencode_invoker import build_opencode_mcp_env
+result = build_opencode_mcp_env('none')
+content = json.loads(result['OPENCODE_CONFIG_CONTENT'])
+assert 'mcpServers' in content
+assert content['mcpServers'] == {}
+print('MCP_NONE_CONTENT_OK')"
 
 # ---- mcp_server.py tests ----
 
