@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 
 PRO_MODEL = "deepseek-v4-pro[1m]"
-FLASH_MODEL = "deepseek-v4-flash-free[1m]"
+FLASH_MODEL = "deepseek-v4-flash[1m]"
 QWEN_MODEL = "opencode/qwen3.6-plus-free"
 
 
