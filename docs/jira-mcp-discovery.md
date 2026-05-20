@@ -79,6 +79,8 @@ export JIRA_API_TOKEN=$(security find-generic-password -s "jira-mcp-token" -a "$
 
 The project-level `.mcp.json` should never contain credentials. The Jira MCP server was already removed from the project's `.mcp.json` — credentials belong in `~/.claude/mcp.json` (user-level config, still plaintext but not committed to version control).
 
+If the project keeps a Jira entry for convenience, it should be a launcher that reads the user-level MCP config and never embeds Jira credentials itself.
+
 ## Verification
 
 After applying any mitigation, verify:

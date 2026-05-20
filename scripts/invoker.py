@@ -142,9 +142,9 @@ def resolve_mcp_config_path(mcp_mode: str) -> str | None:
         return explicit
 
     candidates = [
-        Path(".mcp.json"),
         Path.home() / ".claude" / "mcp.json",
         Path.home() / ".codex" / "mcp.json",
+        Path(".mcp.json"),
         Path(__file__).resolve().parents[1] / ".mcp.json",
     ]
 
