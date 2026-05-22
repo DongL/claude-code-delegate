@@ -2,11 +2,11 @@
   "mcpServers": {
     "claude-code-delegate": {
       "command": "python3",
-      "args": ["scripts/mcp_server.py"]
+      "args": ["/Users/dongliang/Documents/my_skills/claude-code-delegate/scripts/mcp_server.py"]
     },
     "jira": {
       "command": "python3",
-      "args": ["scripts/jira_mcp_launcher.py"]
+      "args": ["/Users/dongliang/Documents/my_skills/claude-code-delegate/scripts/jira_mcp_launcher.py"]
     },
     "gitnexus": {
       "command": "npx",

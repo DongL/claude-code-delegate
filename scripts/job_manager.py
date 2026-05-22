@@ -167,6 +167,13 @@ def find_active_lease() -> dict[str, Any] | None:
     return None
 
 
+def _read_full(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
 def _read_tail(path: Path, max_bytes: int = 2000) -> str:
     try:
         text = path.read_text(encoding="utf-8")
@@ -238,9 +245,9 @@ def get_job_status(job_id: str) -> dict[str, Any]:
 
     if result is not None:
         returncode = result.get("returncode", -1)
-        stdout = _read_tail(d / "stdout.txt")
-        stderr = _read_tail(d / "stderr.txt")
         if returncode == 0:
+            stdout = _read_full(d / "stdout.txt")
+            stderr = _read_tail(d / "stderr.txt")
             return {
                 "status": "completed",
                 "job_id": job_id,
@@ -249,6 +256,8 @@ def get_job_status(job_id: str) -> dict[str, Any]:
                 "stderr_tail": stderr[-2000:] if stderr else "",
             }
         else:
+            stdout = _read_tail(d / "stdout.txt")
+            stderr = _read_tail(d / "stderr.txt")
             return {
                 "status": "failed",
                 "job_id": job_id,
@@ -265,6 +274,9 @@ def get_job_status(job_id: str) -> dict[str, Any]:
             "pid_alive": True,
             "started_at": meta.get("started_at", ""),
         }
+        if isinstance(meta.get("child_pid"), int):
+            status["child_pid"] = meta["child_pid"]
+            status["child_pid_alive"] = _pid_alive(meta["child_pid"])
         stdout_path = d / "stdout.txt"
         stderr_path = d / "stderr.txt"
         if stdout_path.exists():
@@ -275,13 +287,13 @@ def get_job_status(job_id: str) -> dict[str, Any]:
             status["stderr_tail"] = _read_tail(stderr_path)
         return status
 
-    # PID dead, no result.json — the supervisor did not record a
-    # returncode, so we cannot trust the output.  Treat as failed.
+    # Supervisor PID dead, no result.json — the supervisor did not record a
+    # returncode, so we cannot trust the output. Treat as failed.
     stderr = _read_tail(d / "stderr.txt", max_bytes=10_000)
     return {
         "status": "failed",
         "job_id": job_id,
         "returncode": -1,
         "stdout_tail": _read_tail(d / "stdout.txt", max_bytes=2000),
-        "stderr_tail": stderr[-2000:] if stderr else "process exited before waiter recorded result",
+        "stderr_tail": stderr[-2000:] if stderr else "supervisor exited before recording result",
     }

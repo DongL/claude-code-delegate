@@ -142,14 +142,15 @@ def build_opencode_args(config: OpenCodeInvokerConfig) -> list[str]:
 def build_opencode_mcp_env(mcp_mode: str) -> dict[str, str]:
     """Build env vars for MCP configuration in OpenCode.
 
-    OpenCode has no --mcp-config CLI flag.  MCP servers are discovered from
-    config files, so we inject them through OPENCODE_CONFIG_CONTENT.
+    OpenCode has no --mcp-config CLI flag. MCP servers are discovered from
+    config files, so we inject an OpenCode-shaped config through
+    OPENCODE_CONFIG_CONTENT.
     """
     if mcp_mode == "all":
         return {}
 
     if mcp_mode == "none":
-        return {"OPENCODE_CONFIG_CONTENT": json.dumps({"mcpServers": {}})}
+        return {}
 
     from invoker import resolve_mcp_config_path
 
@@ -166,13 +167,59 @@ def build_opencode_mcp_env(mcp_mode: str) -> dict[str, str]:
             f"MCP server '{mcp_mode}' not found in {source}"
         )
 
-    server_config = dict(mcp_servers[mcp_mode])
-    server_config.pop("env", None)
+    server_config = _convert_mcp_server_for_opencode(mcp_servers[mcp_mode])
     return {
         "OPENCODE_CONFIG_CONTENT": json.dumps(
-            {"mcpServers": {mcp_mode: server_config}}
+            {"mcp": {mcp_mode: server_config}}
         )
     }
+
+
+def _convert_mcp_server_for_opencode(server_config: Any) -> dict[str, Any]:
+    """Convert Claude/Codex mcpServers entries into OpenCode's mcp schema."""
+    if not isinstance(server_config, dict):
+        raise ValueError("MCP server config must be an object")
+
+    if "url" in server_config:
+        converted: dict[str, Any] = {
+            "type": "remote",
+            "url": server_config["url"],
+        }
+        for source_key, target_key in (
+            ("headers", "headers"),
+            ("enabled", "enabled"),
+            ("timeout", "timeout"),
+            ("oauth", "oauth"),
+        ):
+            if source_key in server_config:
+                converted[target_key] = server_config[source_key]
+        return converted
+
+    command = server_config.get("command")
+    if not isinstance(command, str) or not command:
+        raise ValueError("Local MCP server config must include a command string")
+
+    args = server_config.get("args", [])
+    if args is None:
+        args = []
+    if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
+        raise ValueError("Local MCP server args must be a list of strings")
+
+    converted = {
+        "type": "local",
+        "command": [command, *args],
+    }
+    env = server_config.get("env")
+    if isinstance(env, dict):
+        converted["environment"] = {
+            str(key): str(value)
+            for key, value in env.items()
+            if isinstance(key, str) and isinstance(value, (str, int, float, bool))
+        }
+    for key in ("enabled", "timeout"):
+        if key in server_config:
+            converted[key] = server_config[key]
+    return converted
 
 
 def launch_opencode_async(

@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+import traceback
 import threading
 import time
 from dataclasses import dataclass
@@ -224,24 +225,35 @@ def _launch_claude_code_async(
 
     stdout_fh = open(stdout_path, "w", encoding="utf-8")
     stderr_fh = open(stderr_path, "w", encoding="utf-8")
+    try:
+        process = subprocess.Popen(
+            [*args, config.prompt],
+            stdin=subprocess.DEVNULL,
+            stdout=stdout_fh,
+            stderr=stderr_fh,
+            env=child_env,
+            text=True,
+        )
+    finally:
+        stdout_fh.close()
+        stderr_fh.close()
 
-    return subprocess.Popen(
-        [*args, config.prompt],
-        stdin=subprocess.DEVNULL,
-        stdout=stdout_fh,
-        stderr=stderr_fh,
-        env=child_env,
-        text=True,
-    )
+    return process
+
+
+def _read_job_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
 
 
 def supervise_job(job_id: str) -> int:
-    """Supervise a job: launch Claude Code, wait, then write result.json.
+    """Supervise a job and always record a terminal result.
 
-    Reads config.json from the job directory, launches Claude Code via
-    launch_claude_async, waits for the process, and records result.json
-    with the real returncode.  The meta.json pid is updated once the
-    child process starts.
+    The async lease tracks this supervisor process. The Claude child PID is
+    recorded separately so polling never mistakes a fast-exiting child for an
+    abandoned job before the supervisor has written result.json.
     """
     from job_manager import (
         _job_dir,
@@ -250,51 +262,69 @@ def supervise_job(job_id: str) -> int:
         write_job_result,
     )
 
-    config_data = read_job_config(job_id)
-    if config_data is None:
-        logger.error("no config for job", job_id=job_id)
-        return 1
-
-    config = InvokerConfig(**config_data)
-
     job_dir = _job_dir(job_id)
-    stdout_path = str(job_dir / "stdout.txt")
-    stderr_path = str(job_dir / "stderr.txt")
-
-    process = launch_claude_async(config, stdout_path, stderr_path)
-
-    meta = read_job_meta(job_id)
-    if meta:
-        meta["pid"] = process.pid
-        (job_dir / "meta.json").write_text(
-            json.dumps(meta, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-
-    logger.info(
-        "supervisor waiting for claude",
-        job_id=job_id,
-        pid=process.pid,
-    )
-    process.wait()
-
-    stdout = ""
-    stderr = ""
     stdout_file = job_dir / "stdout.txt"
     stderr_file = job_dir / "stderr.txt"
-    if stdout_file.exists():
-        stdout = stdout_file.read_text(encoding="utf-8")
-    if stderr_file.exists():
-        stderr = stderr_file.read_text(encoding="utf-8")
 
-    write_job_result(job_id, process.returncode, stdout, stderr)
-    logger.info(
-        "supervisor recorded result",
-        job_id=job_id,
-        returncode=process.returncode,
-    )
+    try:
+        config_data = read_job_config(job_id)
+        if config_data is None:
+            message = f"no config for job {job_id}"
+            logger.error("no config for job", job_id=job_id)
+            write_job_result(job_id, 1, "", message)
+            return 1
 
-    return process.returncode
+        config = InvokerConfig(**config_data)
+
+        process = launch_claude_async(config, str(stdout_file), str(stderr_file))
+
+        meta = read_job_meta(job_id)
+        if meta:
+            meta["supervisor_pid"] = os.getpid()
+            meta["child_pid"] = process.pid
+            # Keep meta["pid"] as the supervisor PID created by --start. Polling
+            # should wait for the supervisor to record result.json, not for the
+            # child process to still be alive.
+            (job_dir / "meta.json").write_text(
+                json.dumps(meta, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+        logger.info(
+            "supervisor waiting for claude",
+            job_id=job_id,
+            pid=process.pid,
+        )
+        process.wait()
+
+        stdout = _read_job_text(stdout_file)
+        stderr = _read_job_text(stderr_file)
+        write_job_result(job_id, process.returncode, stdout, stderr)
+        logger.info(
+            "supervisor recorded result",
+            job_id=job_id,
+            returncode=process.returncode,
+        )
+
+        return process.returncode
+
+    except BaseException as exc:
+        returncode = 1
+        if isinstance(exc, SystemExit) and isinstance(exc.code, int):
+            returncode = exc.code
+        stdout = _read_job_text(stdout_file)
+        stderr = _read_job_text(stderr_file)
+        diagnostic = "Supervisor failed before recording result:\n" + traceback.format_exc()
+        if stderr:
+            stderr = stderr.rstrip() + "\n" + diagnostic
+        else:
+            stderr = diagnostic
+        try:
+            write_job_result(job_id, returncode, stdout, stderr)
+        except Exception:
+            logger.error("failed to write supervisor error result", job_id=job_id, error=str(exc))
+        logger.error("supervisor failed", job_id=job_id, error=str(exc))
+        return returncode
 
 
 def invoke_claude(config: InvokerConfig) -> subprocess.CompletedProcess[Any]:
