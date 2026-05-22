@@ -164,7 +164,7 @@ test_case "default bypassPermissions" 0 "--permission-mode bypassPermissions" "t
 
 test_case "default disables subagents" 0 "--disallowedTools Task Agent" "test prompt"
 
-test_case "--flash flag" 0 "--model deepseek-v4-flash-free[1m]" --flash "test prompt"
+test_case "--flash flag" 0 "--model deepseek-v4-flash[1m]" --flash "test prompt"
 
 test_case "--pro flag" 0 "--model deepseek-v4-pro[1m]" --pro "test prompt"
 
@@ -204,11 +204,11 @@ test_runner_stdout "quiet report shows Prompt section" "Prompt" "check how many 
 
 test_runner_stdout "quiet report shows prompt mode" "mode: template" "check how many rows are in pattern_data"
 
-test_case "tiny task routes to flash" 0 "--model deepseek-v4-flash-free[1m]" "check how many rows are in pattern_data"
+test_case "tiny task routes to flash" 0 "--model deepseek-v4-flash[1m]" "check how many rows are in pattern_data"
 
 test_case "tiny task uses low effort" 0 "--effort low" "check how many rows are in pattern_data"
 
-test_case "routine edit routes to flash" 0 "--model deepseek-v4-flash-free[1m]" "fix the README typo"
+test_case "routine edit routes to flash" 0 "--model deepseek-v4-flash[1m]" "fix the README typo"
 
 test_case "routine edit uses medium effort" 0 "--effort medium" "fix the README typo"
 
@@ -1872,18 +1872,15 @@ assert result == {}, f'expected empty dict, got {result}'
 print('MCP_ALL_OK')"
 
 test_opencode_invoker_py \
-  "build_opencode_mcp_env mode=none returns empty mcpServers" \
+  "build_opencode_mcp_env mode=none returns empty dict" \
   "MCP_NONE_OK" 0 \
-  "import json
-from opencode_invoker import build_opencode_mcp_env
+  "from opencode_invoker import build_opencode_mcp_env
 result = build_opencode_mcp_env('none')
-assert 'OPENCODE_CONFIG_CONTENT' in result
-content = json.loads(result['OPENCODE_CONFIG_CONTENT'])
-assert content.get('mcpServers') == {}
+assert result == {}, f'expected empty dict, got {result}'
 print('MCP_NONE_OK')"
 
 test_opencode_invoker_py \
-  "build_opencode_mcp_env mode=specific resolves and filters mcp config" \
+  "build_opencode_mcp_env mode=specific emits OpenCode mcp config" \
   "MCP_SPECIFIC_OK" 0 \
   "import json, os, tempfile, pathlib
 from opencode_invoker import build_opencode_mcp_env
@@ -1893,7 +1890,7 @@ d = tempfile.mkdtemp()
 mcp_file = pathlib.Path(d) / 'test.json'
 mcp_file.write_text(json.dumps({
     'mcpServers': {
-        'jira': {'command': 'node', 'args': ['jira.js']},
+        'jira': {'command': 'node', 'args': ['jira.js'], 'env': {'TOKEN': 'abc'}},
         'linear': {'command': 'node', 'args': ['linear.js']}
     }
 }))
@@ -1903,11 +1900,13 @@ try:
     result = build_opencode_mcp_env('jira')
     assert 'OPENCODE_CONFIG_CONTENT' in result
     content = json.loads(result['OPENCODE_CONFIG_CONTENT'])
-    servers = content.get('mcpServers', {})
+    assert 'mcpServers' not in content
+    servers = content.get('mcp', {})
     assert 'jira' in servers
     assert 'linear' not in servers
-    assert servers['jira']['command'] == 'node'
-    assert servers['jira']['args'] == ['jira.js']
+    assert servers['jira']['type'] == 'local'
+    assert servers['jira']['command'] == ['node', 'jira.js']
+    assert servers['jira']['environment'] == {'TOKEN': 'abc'}
     print('MCP_SPECIFIC_OK')
 finally:
     del os.environ['CLAUDE_DELEGATE_MCP_CONFIG_PATH']
@@ -1915,14 +1914,42 @@ finally:
     shutil.rmtree(d)"
 
 test_opencode_invoker_py \
-  "build_opencode_mcp_env mode=none has empty mcpServers" \
-  "MCP_NONE_CONTENT_OK" 0 \
-  "import json
+  "build_opencode_mcp_env converts remote server config" \
+  "MCP_REMOTE_OK" 0 \
+  "import json, os, tempfile, pathlib
 from opencode_invoker import build_opencode_mcp_env
+
+d = tempfile.mkdtemp()
+mcp_file = pathlib.Path(d) / 'test.json'
+mcp_file.write_text(json.dumps({
+    'mcpServers': {
+        'context7': {
+            'url': 'https://mcp.context7.com/mcp',
+            'headers': {'CONTEXT7_API_KEY': '{env:CONTEXT7_API_KEY}'}
+        }
+    }
+}))
+
+os.environ['CLAUDE_DELEGATE_MCP_CONFIG_PATH'] = str(mcp_file)
+try:
+    result = build_opencode_mcp_env('context7')
+    content = json.loads(result['OPENCODE_CONFIG_CONTENT'])
+    server = content['mcp']['context7']
+    assert server['type'] == 'remote'
+    assert server['url'] == 'https://mcp.context7.com/mcp'
+    assert server['headers'] == {'CONTEXT7_API_KEY': '{env:CONTEXT7_API_KEY}'}
+    print('MCP_REMOTE_OK')
+finally:
+    del os.environ['CLAUDE_DELEGATE_MCP_CONFIG_PATH']
+    import shutil
+    shutil.rmtree(d)"
+
+test_opencode_invoker_py \
+  "build_opencode_mcp_env mode=none does not set OPENCODE_CONFIG_CONTENT" \
+  "MCP_NONE_CONTENT_OK" 0 \
+  "from opencode_invoker import build_opencode_mcp_env
 result = build_opencode_mcp_env('none')
-content = json.loads(result['OPENCODE_CONFIG_CONTENT'])
-assert 'mcpServers' in content
-assert content['mcpServers'] == {}
+assert 'OPENCODE_CONFIG_CONTENT' not in result, f'should not have OPENCODE_CONFIG_CONTENT, got {result}'
 print('MCP_NONE_CONTENT_OK')"
 
 # ---- mcp_server.py tests ----
@@ -2303,7 +2330,7 @@ finally:
     proc.terminate()
     proc.wait()'
 
-  # 2. tools/list returns all 4 tools
+  # 2. tools/list returns all 6 tools (classify_task, format_jira_text, delegate_task, aggregate_profile, start_delegation, poll_delegation)
   test_mcp_integration "mcp integration: tools/list" "tools_list_OK" 0 \
 'proc = subprocess.Popen(
     [sys.executable, MCP_SERVER],
@@ -2321,10 +2348,12 @@ try:
     line = proc.stdout.readline()
     resp = json.loads(line)
     tools = resp["result"]["tools"]
-    assert len(tools) == 4, "got {} tools".format(len(tools))
     names = [t["name"] for t in tools]
-    for n in ["classify_task","format_jira_text","delegate_task","aggregate_profile"]:
+    for n in ["classify_task","format_jira_text","delegate_task","aggregate_profile","start_delegation","poll_delegation"]:
         assert n in names, "missing: {}".format(n)
+    # Verify each listed tool omits structured output schema (current project behavior)
+    for t in tools:
+        assert "outputSchema" not in t, "tool {} has outputSchema".format(t["name"])
     print("tools_list_OK")
 finally:
     proc.terminate()
@@ -2442,7 +2471,31 @@ try:
 finally:
     os.unlink(jsonl_path)'
 
-  # 7. Invalid tool name returns error
+  # 9. poll_delegation returns not_found for nonexistent job
+  test_mcp_integration "mcp integration: poll_delegation not_found" "poll_not_found_OK" 0 \
+'proc = subprocess.Popen(
+    [sys.executable, MCP_SERVER],
+    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    text=True, env=os.environ
+)
+try:
+    proc.stdin.write(json.dumps({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}) + "\n")
+    proc.stdin.flush()
+    proc.stdout.readline()
+    proc.stdin.write(json.dumps({"jsonrpc":"2.0","method":"notifications/initialized"}) + "\n")
+    proc.stdin.flush()
+    proc.stdin.write(json.dumps({"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"poll_delegation","arguments":{"job_id":"nonexistent-job-id-12345"}}}) + "\n")
+    proc.stdin.flush()
+    line = proc.stdout.readline()
+    resp = json.loads(line)
+    content = json.loads(resp["result"]["content"][0]["text"])
+    assert content["status"] == "not_found", "got: {}".format(content)
+    print("poll_not_found_OK")
+finally:
+    proc.terminate()
+    proc.wait()'
+
+  # 10. Invalid tool name returns error
   test_mcp_integration "mcp integration: invalid tool" "invalid_tool_OK" 0 \
 'proc = subprocess.Popen(
     [sys.executable, MCP_SERVER],
@@ -2465,7 +2518,7 @@ finally:
     proc.terminate()
     proc.wait()'
 
-  # 8. Malformed JSON returns parse error
+  # 11. Malformed JSON returns parse error
   test_mcp_integration "mcp integration: malformed JSON" "malformed_json_OK" 0 \
 'proc = subprocess.Popen(
     [sys.executable, MCP_SERVER],
@@ -3676,6 +3729,55 @@ proc.terminate()
 proc.wait()
 print('waiter_running_ok')"
 
+# Test 4: polling follows supervisor PID, not a dead child PID
+test_job_manager_py \
+  "async waiter: dead child remains running while supervisor alive" \
+  "waiter_supervisor_pid_ok" 0 \
+  "from job_manager import get_jobs_dir, create_job_meta, get_job_status, read_job_meta
+import json, subprocess, shutil
+jd = get_jobs_dir()
+for d in jd.iterdir():
+    if d.is_dir():
+        shutil.rmtree(d)
+job_id = 'waiter-supervisor-pid'
+proc = subprocess.Popen(['sleep', '30'])
+create_job_meta(job_id, proc.pid, 'test', 'flash', 'low', 'bypass', 'all', 'quiet')
+meta = read_job_meta(job_id)
+meta['child_pid'] = 99999
+(jd / job_id / 'meta.json').write_text(json.dumps(meta, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+status = get_job_status(job_id)
+assert status['status'] == 'running', 'expected running, got {}'.format(status)
+assert status['pid'] == proc.pid
+assert status['child_pid'] == 99999
+assert status['child_pid_alive'] == False
+proc.terminate()
+proc.wait()
+print('waiter_supervisor_pid_ok')"
+
+# Test 5: supervisor records launch-time exceptions into result.json
+test_job_manager_py \
+  "async waiter: supervisor exception records failed result" \
+  "supervisor_exception_recorded" 0 \
+  "from dataclasses import asdict
+from invoker import InvokerConfig, supervise_job
+from job_manager import get_jobs_dir, create_job_meta, persist_job_config, get_job_status
+import os, shutil
+jd = get_jobs_dir()
+for d in jd.iterdir():
+    if d.is_dir():
+        shutil.rmtree(d)
+job_id = 'supervisor-exception'
+config = InvokerConfig(model='fake', effort='low', permission_mode='bypassPermissions', mcp_mode='missing-server', subagent_mode='off', heartbeat_seconds=0, output_mode='quiet', prompt='test')
+persist_job_config(job_id, asdict(config))
+create_job_meta(job_id, os.getpid(), 'test', 'fake', 'low', 'bypassPermissions', 'missing-server', 'quiet')
+rc = supervise_job(job_id)
+status = get_job_status(job_id)
+assert rc == 1
+assert status['status'] == 'failed', status
+assert status['returncode'] == 1, status
+assert 'Supervisor failed before recording result' in status['stderr_tail'], status
+print('supervisor_exception_recorded')"
+
 # ---- wrapper-level --start / --poll tests ----
 
 echo ""
@@ -3798,6 +3900,87 @@ cp "$SANDBOX/claude-ok" "$SANDBOX/claude"
 rm -rf "$CLAUDE_DELEGATE_RUNTIME_DIR"
 unset CLAUDE_DELEGATE_RUNTIME_DIR
 
+# ---- regression: large single-line stdout parses correctly on poll ----
+echo ""
+echo "=== regression: large single-line stdout poll parsing ==="
+
+test_job_manager_py \
+  "poll parses large single-line stdout >2000 chars" \
+  "large_poll_ok" 0 \
+  "from pipeline import poll_delegation_status
+from job_manager import get_jobs_dir, create_job_meta, write_job_result
+import json, os
+
+# Build a single-line Claude result JSON with >2000 chars of result text.
+# The _read_tail truncation would cut off the beginning of this line,
+# dropping 'result', 'usage', 'total_cost_usd', and 'terminal_reason'.
+long_text = 'x' * 2500
+payload = {
+    'type': 'result',
+    'result': long_text,
+    'usage': {'input_tokens': 100, 'output_tokens': 50},
+    'total_cost_usd': 0.015,
+    'terminal_reason': 'completed',
+}
+stdout_line = json.dumps(payload)
+
+jd = get_jobs_dir()
+job_id = 'large-stdout-poll'
+d = jd / job_id
+d.mkdir(parents=True, exist_ok=True)
+
+create_job_meta(job_id, pid=99999, prompt='test', model='pro',
+                effort='max', permission_mode='bypassPermissions',
+                mcp_mode='all', output_mode='quiet')
+write_job_result(job_id, returncode=0, stdout=stdout_line, stderr='')
+
+status = poll_delegation_status(job_id)
+assert status['status'] == 'completed', f'unexpected status: {status}'
+assert status['result'] == long_text, f'result truncated or missing: len={len(status[\"result\"])}'
+assert status['usage'] == {'input_tokens': 100, 'output_tokens': 50}, f'usage wrong: {status[\"usage\"]}'
+assert status['cost_usd'] == 0.015, f'cost_usd wrong: {status[\"cost_usd\"]}'
+assert status['terminal_reason'] == 'completed', f'terminal_reason wrong: {status[\"terminal_reason\"]}'
+print('large_poll_ok')"
+
+# Also verify via direct get_job_status -> parse_compact_output path
+test_job_manager_py \
+  "get_job_status returns full stdout for completed job >2000 chars" \
+  "full_stdout_ok" 0 \
+  "from job_manager import get_job_status, get_jobs_dir, create_job_meta, write_job_result
+from compact_claude_stream import parse_compact_output
+import json
+
+long_text = 'y' * 3000
+payload = {
+    'type': 'result',
+    'result': long_text,
+    'usage': {'input_tokens': 200, 'output_tokens': 100},
+    'total_cost_usd': 0.030,
+    'terminal_reason': 'completed',
+}
+stdout_line = json.dumps(payload)
+
+jd = get_jobs_dir()
+job_id = 'full-stdout-direct'
+d = jd / job_id
+d.mkdir(parents=True, exist_ok=True)
+
+create_job_meta(job_id, pid=99999, prompt='test', model='pro',
+                effort='max', permission_mode='bypassPermissions',
+                mcp_mode='all', output_mode='quiet')
+write_job_result(job_id, returncode=0, stdout=stdout_line, stderr='')
+
+status = get_job_status(job_id)
+assert status['status'] == 'completed', f'unexpected status: {status}'
+assert 'stdout' in status, 'completed status missing stdout key'
+
+parsed = parse_compact_output(status['stdout'])
+assert parsed['result'] == long_text, f'parse_compact_output lost result: len={len(parsed[\"result\"])}'
+assert parsed['usage'] == {'input_tokens': 200, 'output_tokens': 100}, f'usage wrong: {parsed[\"usage\"]}'
+assert parsed['cost_usd'] == 0.030, f'cost_usd wrong: {parsed[\"cost_usd\"]}'
+assert parsed['terminal_reason'] == 'completed', f'terminal_reason wrong: {parsed[\"terminal_reason\"]}'
+print('full_stdout_ok')"
+
 
 # ---- mcp_server.py tests ----
 
@@ -3886,6 +4069,69 @@ else
   failed=$((failed+1))
 fi
 
+
+# ---- async delegation MCP tests ----
+
+echo ""
+echo "=== async delegation MCP tools ==="
+
+if [ "$HAS_MCP_PKG" = "yes" ]; then
+
+test_mcp_server_py \
+  "mcp_server exposes start_delegation and poll_delegation" \
+  "async_tools_exist" 0 \
+  "import importlib.util, os
+spec = importlib.util.spec_from_file_location(
+    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
+)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+assert hasattr(mod, 'start_delegation'), 'missing start_delegation'
+assert hasattr(mod, 'poll_delegation'), 'missing poll_delegation'
+print('async_tools_exist')"
+
+test_mcp_server_py \
+  "start_delegation returns dict with job_id and status" \
+  "start_delegation_dict_ok" 0 \
+  "import importlib.util, os, sys
+scripts_dir = '$SCRIPT_DIR/../scripts'
+sys.path.insert(0, scripts_dir)
+spec = importlib.util.spec_from_file_location(
+    'mcp_server', os.path.join(scripts_dir, 'mcp_server.py')
+)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+import asyncio
+result = asyncio.get_event_loop().run_until_complete(
+    mod.start_delegation(prompt='test prompt', output_mode='quiet')
+)
+assert isinstance(result, dict)
+assert 'job_id' in result or 'status' in result
+print('start_delegation_dict_ok')"
+
+test_mcp_server_py \
+  "poll_delegation returns status not_found for nonexistent job" \
+  "poll_not_found_ok" 0 \
+  "import importlib.util, os, sys
+scripts_dir = '$SCRIPT_DIR/../scripts'
+sys.path.insert(0, scripts_dir)
+spec = importlib.util.spec_from_file_location(
+    'mcp_server', os.path.join(scripts_dir, 'mcp_server.py')
+)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+import asyncio
+result = asyncio.get_event_loop().run_until_complete(
+    mod.poll_delegation(job_id='nonexistent-job-id-12345')
+)
+assert isinstance(result, dict)
+assert result.get('status') == 'not_found', f\"got status={result.get('status')}\"
+print('poll_not_found_ok')"
+
+else
+  echo "  SKIP  async delegation MCP tests (mcp package not installed)"
+  passed=$((passed+3))
+fi
 
 # ---- summary ----
 
