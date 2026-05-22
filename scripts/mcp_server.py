@@ -105,6 +105,73 @@ async def aggregate_profile(
         return {"text_summary": _agg_mod.format_text(result)}
 
 
+@server.tool(structured_output=False)
+async def start_delegation(
+    prompt: str,
+    model_tier: str = "auto",
+    effort: str = "auto",
+    permission_mode: str = "auto",
+    mcp_mode: str = "all",
+    context_mode: str = "auto",
+    allow_subagents: bool = False,
+    output_mode: str = "quiet",
+    executor: str = "claude-code",
+) -> dict[str, Any]:
+    """Start an async delegation job. Returns job_id and status."""
+    import importlib
+
+    for mod_name in ("classifier", "invoker", "opencode_invoker", "pipeline"):
+        m = sys.modules.get(mod_name)
+        if m is not None:
+            importlib.reload(m)
+
+    from pipeline import start_delegation_async
+
+    try:
+        result = start_delegation_async(
+            prompt=prompt,
+            model_tier=model_tier,
+            effort=effort,
+            permission_mode=permission_mode,
+            mcp_mode=mcp_mode,
+            context_mode=context_mode,
+            subagent_mode="on" if allow_subagents else "off",
+            output_mode=output_mode,
+            executor=executor,
+        )
+    except Exception as exc:
+        return {
+            "status": "error",
+            "terminal_reason": f"pipeline_error: {exc}",
+        }
+
+    return result
+
+
+@server.tool(structured_output=False)
+async def poll_delegation(job_id: str) -> dict[str, Any]:
+    """Poll the status of an async delegation job."""
+    import importlib
+
+    for mod_name in ("classifier", "invoker", "opencode_invoker", "pipeline"):
+        m = sys.modules.get(mod_name)
+        if m is not None:
+            importlib.reload(m)
+
+    from pipeline import poll_delegation_status
+
+    try:
+        result = poll_delegation_status(job_id)
+    except Exception as exc:
+        return {
+            "status": "error",
+            "job_id": job_id,
+            "terminal_reason": f"pipeline_error: {exc}",
+        }
+
+    return result
+
+
 def main() -> None:
     server.run()
 
