@@ -174,14 +174,14 @@ Add to your project's `.mcp.json`:
 }
 ```
 
-Your orchestrator discovers four tools via `tools/list` and delegates with one typed call:
+Your orchestrator discovers six tools via `tools/list` and delegates with one typed call:
 
 ```
 delegate_task(prompt="fix the type error in src/cli.py")
 // → { classification, result, usage, cost_usd, terminal_reason }
 ```
 
-Also available: `classify_task`, `aggregate_profile`, `format_jira_text`. Requires `pip install mcp`.
+Also available: `classify_task`, `aggregate_profile`, `format_jira_text`, `start_delegation`, `poll_delegation`. Requires `pip install mcp`.
 
 ### Shell wrapper (fallback)
 
@@ -660,14 +660,14 @@ claude -p "hello" --model deepseek-v4-flash[1m]
 }
 ```
 
-编排器通过 `tools/list` 发现四个工具，一次类型化调用即可委派：
+编排器通过 `tools/list` 发现六个工具，一次类型化调用即可委派：
 
 ```
 delegate_task(prompt="修复 src/cli.py 中的类型错误")
 // → { classification, result, usage, cost_usd, terminal_reason }
 ```
 
-还提供：`classify_task`、`aggregate_profile`、`format_jira_text`。需要 `pip install mcp`。
+还提供：`classify_task`、`aggregate_profile`、`format_jira_text`、`start_delegation`、`poll_delegation`。需要 `pip install mcp`。
 
 ### Shell wrapper（后备）
 

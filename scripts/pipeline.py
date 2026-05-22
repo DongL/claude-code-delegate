@@ -361,9 +361,9 @@ def start_delegation_async(
         stderr=subprocess.DEVNULL,
     )
 
-    # Create meta.json with the supervisor PID so find_active_lease can
-    # identify this job as alive before the supervisor replaces it with
-    # the Claude child PID.
+    # Create meta.json with the supervisor PID so find_active_lease and
+    # polling follow the process responsible for recording result.json.
+    # The Claude child PID is stored separately by the supervisor.
     create_job_meta(
         job_id=job_id,
         pid=supervisor_proc.pid,
