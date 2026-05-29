@@ -58,6 +58,7 @@ def create_job_meta(
     permission_mode: str,
     mcp_mode: str,
     output_mode: str,
+    subagent_mode: str = "off",
 ) -> dict[str, Any]:
     meta = {
         "job_id": job_id,
@@ -69,6 +70,7 @@ def create_job_meta(
         "permission_mode": permission_mode,
         "mcp_mode": mcp_mode,
         "output_mode": output_mode,
+        "subagent_mode": subagent_mode,
         "status": "running",
     }
     d = _job_dir(job_id)
@@ -184,6 +186,81 @@ def _read_tail(path: Path, max_bytes: int = 2000) -> str:
         return ""
 
 
+def get_job_status_compact(job_id: str) -> dict[str, Any]:
+    """Return compact status — stat() sizes only, no file tail reads.
+
+    Returns only: status, elapsed_seconds, pid_alive, child_pid_alive,
+    stdout_bytes, stderr_bytes.  Designed for lightweight between-poll
+    checks to save tokens.
+    """
+    meta = read_job_meta(job_id)
+    if meta is None:
+        return {"status": "not_found", "job_id": job_id}
+
+    pid = meta.get("pid")
+    d = _job_dir(job_id)
+    result = read_job_result(job_id)
+
+    if result is not None:
+        returncode = result.get("returncode", -1)
+        stdout_path = d / "stdout.txt"
+        stderr_path = d / "stderr.txt"
+        return {
+            "status": "completed" if returncode == 0 else "failed",
+            "job_id": job_id,
+            "returncode": returncode,
+            "elapsed_seconds": -1,
+            "pid_alive": False,
+            "child_pid_alive": False,
+            "stdout_bytes": stdout_path.stat().st_size if stdout_path.exists() else 0,
+            "stderr_bytes": stderr_path.stat().st_size if stderr_path.exists() else 0,
+        }
+
+    pid_alive = isinstance(pid, int) and _pid_alive(pid)
+    child_pid = meta.get("child_pid")
+    child_pid_alive = isinstance(child_pid, int) and _pid_alive(child_pid) if child_pid else False
+
+    elapsed_seconds = -1
+    started_at = meta.get("started_at", "")
+    if started_at:
+        try:
+            start_dt = datetime.fromisoformat(started_at)
+            now_dt = datetime.now(timezone.utc)
+            elapsed_seconds = int((now_dt - start_dt).total_seconds())
+        except (ValueError, TypeError):
+            pass
+
+    stdout_bytes = 0
+    stderr_bytes = 0
+    stdout_path = d / "stdout.txt"
+    stderr_path = d / "stderr.txt"
+    if stdout_path.exists():
+        stdout_bytes = stdout_path.stat().st_size
+    if stderr_path.exists():
+        stderr_bytes = stderr_path.stat().st_size
+
+    if not pid_alive:
+        return {
+            "status": "failed",
+            "job_id": job_id,
+            "elapsed_seconds": elapsed_seconds,
+            "pid_alive": False,
+            "child_pid_alive": False,
+            "stdout_bytes": stdout_bytes,
+            "stderr_bytes": stderr_bytes,
+        }
+
+    return {
+        "status": "running",
+        "job_id": job_id,
+        "elapsed_seconds": elapsed_seconds,
+        "pid_alive": pid_alive,
+        "child_pid_alive": child_pid_alive,
+        "stdout_bytes": stdout_bytes,
+        "stderr_bytes": stderr_bytes,
+    }
+
+
 def cleanup_expired_jobs(retention_days: int | None = None) -> int:
     """Remove job directories older than retention_days.
 
@@ -216,6 +293,13 @@ def cleanup_expired_jobs(retention_days: int | None = None) -> int:
         meta = read_job_meta(d.name)
         if meta is None:
             continue
+        # Never delete a running job whose supervisor PID is still alive.
+        # Otherwise tests or parallel processes could nuke an active delegation
+        # mid-flight, causing MCP poll to return not_found and losing results.
+        if meta.get("status") == "running":
+            pid = meta.get("pid")
+            if isinstance(pid, int) and _pid_alive(pid):
+                continue
         started_at = meta.get("started_at", "")
         try:
             job_time = datetime.fromisoformat(started_at)
@@ -254,6 +338,7 @@ def get_job_status(job_id: str) -> dict[str, Any]:
                 "returncode": 0,
                 "stdout": stdout,
                 "stderr_tail": stderr[-2000:] if stderr else "",
+                "subagent_mode": meta.get("subagent_mode", "off"),
             }
         else:
             stdout = _read_tail(d / "stdout.txt")
@@ -264,15 +349,29 @@ def get_job_status(job_id: str) -> dict[str, Any]:
                 "returncode": returncode,
                 "stdout_tail": stdout[-2000:] if stdout else "",
                 "stderr_tail": stderr[-2000:] if stderr else "",
+                "subagent_mode": meta.get("subagent_mode", "off"),
             }
 
     if isinstance(pid, int) and _pid_alive(pid):
+        elapsed_seconds = -1
+        started_at = meta.get("started_at", "")
+        if started_at:
+            try:
+                start_dt = datetime.fromisoformat(started_at)
+                now_dt = datetime.now(timezone.utc)
+                elapsed_seconds = int((now_dt - start_dt).total_seconds())
+            except (ValueError, TypeError):
+                pass
+
         status: dict[str, Any] = {
             "status": "running",
             "job_id": job_id,
             "pid": pid,
             "pid_alive": True,
-            "started_at": meta.get("started_at", ""),
+            "started_at": started_at,
+            "elapsed_seconds": elapsed_seconds,
+            "output_mode": meta.get("output_mode", "quiet"),
+            "subagent_mode": meta.get("subagent_mode", "off"),
         }
         if isinstance(meta.get("child_pid"), int):
             status["child_pid"] = meta["child_pid"]

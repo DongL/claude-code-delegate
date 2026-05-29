@@ -24,6 +24,7 @@
 | *(none)* | `CLAUDE_DELEGATE_MCP_CONFIG_PATH` | Path to `.mcp.json` for single-server MCP mode |
 | *(none)* | `CLAUDE_DELEGATE_LOG_LEVEL` | Log level: `DEBUG`, `INFO`, `WARN`, `ERROR` |
 | *(none)* | `CLAUDE_DELEGATE_LOG_FORMAT` | Log format: `json` or `text` |
+| *(none)* | `OPENCODE_BIN` | Explicit path to the OpenCode binary (auto-discovery falls back to PATH, then `~/.opencode/bin/opencode`, `~/.local/bin/opencode`, `/opt/homebrew/bin/opencode`, `/usr/local/bin/opencode`) |
 
 ## Delegation Suitability
 
@@ -227,4 +228,4 @@ Each template preserves the full original request, task goal, allowed scope, con
 
 ## Profiling
 
-Quiet output includes model, effort, permission mode, MCP mode, class, task type, context budget, prompt template, prompt character counts, usage tokens, cache-read tokens, cache-hit ratio when available, cost, and terminal reason. Prompt reduction is expected to be zero for normal templated prompts because the original request is preserved. Set `CLAUDE_DELEGATE_PROFILE_LOG` to append the same non-secret metadata to JSONL for trend analysis. The bundled `scripts/aggregate-profile-log.py` reads these JSONL records and outputs a concise aggregate summary (plain text by default, `--json` for machine-readable).
+Quiet output includes model, effort, permission mode, MCP mode, subagent mode and observed count, class, task type, context budget, prompt template, prompt character counts, usage tokens, cache-read tokens, cache-hit ratio when available, cost, and terminal reason. Note: in quiet JSON mode the internal subagent count is reported as "unknown" because Claude Code does not emit tool-use stream events there. Prompt reduction is expected to be zero for normal templated prompts because the original request is preserved. Set `CLAUDE_DELEGATE_PROFILE_LOG` to append the same non-secret metadata to JSONL for trend analysis. The bundled `scripts/aggregate-profile-log.py` reads these JSONL records and outputs a concise aggregate summary (plain text by default, `--json` for machine-readable).

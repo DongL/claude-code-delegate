@@ -72,6 +72,7 @@ def parse_opencode_events(events: list[dict[str, Any]]) -> dict[str, Any]:
         "permission_mode": None,
         "mcp_mode": None,
         "cwd": None,
+        "subagent_count": 0,
         "is_error": is_error,
         "has_init": False,
         "has_result": bool(texts) or bool(usage),

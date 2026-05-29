@@ -87,6 +87,7 @@ def delegate_task(
         "usage": result.usage,
         "cost_usd": result.cost_usd,
         "terminal_reason": result.terminal_reason,
+        "subagents": getattr(result, "subagents", {}),
     }
 
 
@@ -162,6 +163,30 @@ async def poll_delegation(job_id: str) -> dict[str, Any]:
 
     try:
         result = poll_delegation_status(job_id)
+    except Exception as exc:
+        return {
+            "status": "error",
+            "job_id": job_id,
+            "terminal_reason": f"pipeline_error: {exc}",
+        }
+
+    return result
+
+
+@server.tool(structured_output=False)
+async def poll_delegation_compact(job_id: str) -> dict[str, Any]:
+    """Lightweight poll — stat() sizes only, no file tail reads. Saves tokens."""
+    import importlib
+
+    for mod_name in ("job_manager",):
+        m = sys.modules.get(mod_name)
+        if m is not None:
+            importlib.reload(m)
+
+    from job_manager import get_job_status_compact
+
+    try:
+        result = get_job_status_compact(job_id)
     except Exception as exc:
         return {
             "status": "error",

@@ -282,13 +282,32 @@ def supervise_job(job_id: str) -> int:
         if meta:
             meta["supervisor_pid"] = os.getpid()
             meta["child_pid"] = process.pid
-            # Keep meta["pid"] as the supervisor PID created by --start. Polling
-            # should wait for the supervisor to record result.json, not for the
-            # child process to still be alive.
             (job_dir / "meta.json").write_text(
                 json.dumps(meta, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
             )
+
+        _monitor = None
+        if config.heartbeat_seconds > 0:
+            _start_wall = time.monotonic()
+            _stderr_path = str(stderr_file)
+            _child_pid = process.pid
+
+            def _write_heartbeat():
+                while process.poll() is None:
+                    time.sleep(config.heartbeat_seconds)
+                    if process.poll() is not None:
+                        break
+                    elapsed = int(time.monotonic() - _start_wall)
+                    hb = f"[supervisor heartbeat] elapsed={elapsed}s child_pid={_child_pid}\n"
+                    try:
+                        with open(_stderr_path, "a", encoding="utf-8") as _fh:
+                            _fh.write(hb)
+                    except OSError:
+                        pass
+
+            _monitor = threading.Thread(target=_write_heartbeat, daemon=True)
+            _monitor.start()
 
         logger.info(
             "supervisor waiting for claude",
@@ -296,6 +315,8 @@ def supervise_job(job_id: str) -> int:
             pid=process.pid,
         )
         process.wait()
+        if _monitor is not None:
+            _monitor.join(timeout=5)
 
         stdout = _read_job_text(stdout_file)
         stderr = _read_job_text(stderr_file)

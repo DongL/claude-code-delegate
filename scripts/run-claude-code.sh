@@ -8,6 +8,7 @@ fi
 
 mode="exec"
 poll_job_id=""
+status_job_id=""
 model_tier="auto"
 output_mode="${CLAUDE_DELEGATE_OUTPUT_MODE:-quiet}"
 mcp_mode="${CLAUDE_DELEGATE_MCP_MODE:-all}"
@@ -44,6 +45,15 @@ while [[ $# -gt 0 ]]; do
       fi
       mode="poll"
       poll_job_id="$2"
+      shift 2
+      ;;
+    --status)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing job_id for --status" >&2
+        exit 2
+      fi
+      mode="status"
+      status_job_id="$2"
       shift 2
       ;;
     --pro)
@@ -120,12 +130,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ $# -lt 1 ]] && [[ "$mode" != "poll" ]]; then
-  echo "Usage: $0 [--start|--poll JOB_ID] [--pro|--flash|--qwen] [--opencode] [--effort VALUE] [--quiet|--stream] [--bypass|--interactive] [--mcp MODE] [--full-context] [--allow-subagents] [--executor NAME] PROMPT [CLAUDE_ARGS...]" >&2
+if [[ $# -lt 1 ]] && [[ "$mode" != "poll" ]] && [[ "$mode" != "status" ]]; then
+  echo "Usage: $0 [--start|--poll JOB_ID|--status JOB_ID] [--pro|--flash|--qwen] [--opencode] [--effort VALUE] [--quiet|--stream] [--bypass|--interactive] [--mcp MODE] [--full-context] [--allow-subagents] [--executor NAME] PROMPT [CLAUDE_ARGS...]" >&2
   exit 2
 fi
 
-if [[ "$mode" != "poll" ]]; then
+if [[ "$mode" != "poll" ]] && [[ "$mode" != "status" ]]; then
   case "$output_mode" in
     quiet|stream) ;;
     *)
@@ -166,7 +176,7 @@ if [[ "$mode" != "poll" ]]; then
   esac
 fi
 
-if [[ "$mode" != "poll" ]]; then
+if [[ "$mode" != "poll" ]] && [[ "$mode" != "status" ]]; then
   prompt="$1"
   shift
 fi
@@ -197,6 +207,11 @@ case "$mode" in
     exec python3 "$script_dir/run-pipeline.py" \
       "--poll" \
       "$poll_job_id"
+    ;;
+  status)
+    exec python3 "$script_dir/run-pipeline.py" \
+      "--status" \
+      "$status_job_id"
     ;;
   *)
     exec python3 "$script_dir/run-pipeline.py" \

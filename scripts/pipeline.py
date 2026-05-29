@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from classifier import Classification, classify_prompt, FLASH_MODEL, PRO_MODEL, QWEN_MODEL, build_prepared_prompt, classification_to_dict
@@ -46,6 +46,7 @@ class DelegationResult:
     prompt_template: str = ""
     original_prompt_chars: int = 0
     prepared_prompt_chars: int = 0
+    subagents: dict[str, Any] = field(default_factory=dict)
 
 
 def _resolve_auto(value: str, fallback: str) -> str:
@@ -95,6 +96,36 @@ def _resolve_model(model_tier: str, classification: Classification) -> str:
     return classification.model
 
 
+def _count_subagent_stream_events(raw_output: str) -> int | None:
+    """Count Task/Agent tool-use events in stream-json output. Conservative: returns None on any parse failure."""
+    import json
+    count = 0
+    found_any = False
+    for line in raw_output.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        msg = event.get("message")
+        if not isinstance(msg, dict):
+            continue
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "tool_use" and block.get("name") in ("Task", "Agent"):
+                count += 1
+                found_any = True
+    return count if found_any else None
+
+
 def run_delegation_pipeline(
     prompt: str,
     *,
@@ -127,7 +158,16 @@ def run_delegation_pipeline(
     resolved_context = resolved["context_mode"]
     resolved_subagents = resolved["subagent_mode"]
 
-    # 3. Build prepared prompt
+    # 3. Subagent metadata
+    allowed = resolved_subagents == "on"
+    subagents: dict[str, Any] = {
+        "mode": resolved_subagents,
+        "allowed": allowed,
+        "observed_count": 0 if not allowed else None,
+        "observed_source": "disabled" if not allowed else "not_observable_in_quiet_json",
+    }
+
+    # 4. Build prepared prompt
     final_prompt, prompt_mode = build_prepared_prompt(prompt, classification, resolved_context)
 
     # Validate prompt is non-empty before invoking executor
@@ -150,6 +190,7 @@ def run_delegation_pipeline(
             prompt_template="",
             original_prompt_chars=len(prompt),
             prepared_prompt_chars=0,
+            subagents=subagents,
         )
 
     # Compute prompt metadata
@@ -165,7 +206,7 @@ def run_delegation_pipeline(
         0, int((1 - prepared_prompt_chars / max(original_prompt_chars, 1)) * 100)
     )
 
-    # 4. Build InvokerConfig
+    # 5. Build InvokerConfig
     heartbeat_seconds = 30
     try:
         heartbeat_seconds = int(
@@ -204,11 +245,11 @@ def run_delegation_pipeline(
         output_mode=output_mode,
     )
 
-    # 5. Invoke Claude Code (heartbeat/monitor runs inside invoke_claude)
+    # 6. Invoke Claude Code (heartbeat/monitor runs inside invoke_claude)
     try:
         result = invoke_claude(config)
 
-        # 6. Parse output
+        # 7. Parse output
         if output_mode == "stream":
             parsed = {
                 "result": result.stdout,
@@ -217,6 +258,11 @@ def run_delegation_pipeline(
                 "terminal_reason": "",
                 "is_error": result.returncode != 0,
             }
+            if allowed:
+                subagents["observed_source"] = "stream_events"
+                count = _count_subagent_stream_events(result.stdout)
+                if count is not None and count > 0:
+                    subagents["observed_count"] = count
         else:
             parsed = parse_compact_output(result.stdout)
 
@@ -250,6 +296,7 @@ def run_delegation_pipeline(
             total_cost_usd=parsed.get("cost_usd"),
             terminal_reason=parsed.get("terminal_reason"),
             is_error=bool(parsed.get("is_error")),
+            subagents=subagents,
         )
         append_profile_record(record, profile_log)
 
@@ -270,6 +317,7 @@ def run_delegation_pipeline(
         prompt_template=prompt_template,
         original_prompt_chars=original_prompt_chars,
         prepared_prompt_chars=prepared_prompt_chars,
+        subagents=subagents,
     )
 
 
@@ -325,13 +373,21 @@ def start_delegation_async(
 
     final_prompt, _ = build_prepared_prompt(prompt, classification, context_mode)
 
+    _heartbeat = 0
+    try:
+        _heartbeat = int(
+            os.environ.get("CLAUDE_DELEGATE_HEARTBEAT_SECONDS", "0")
+        )
+    except (ValueError, TypeError):
+        pass
+
     config = InvokerConfig(
         model=model,
         effort=final_effort,
         permission_mode=final_permission,
         mcp_mode=resolved_mcp,
         subagent_mode=resolved_subagents,
-        heartbeat_seconds=0,
+        heartbeat_seconds=_heartbeat,
         output_mode=output_mode,
         prompt=final_prompt,
         inactivity_timeout=0,
@@ -373,6 +429,7 @@ def start_delegation_async(
         permission_mode=final_permission,
         mcp_mode=resolved_mcp,
         output_mode=output_mode,
+        subagent_mode=resolved_subagents,
     )
 
     logger.info(
@@ -390,6 +447,7 @@ def start_delegation_async(
         "started_at": "just now",
         "model": model,
         "effort": final_effort,
+        "subagent_mode": resolved_subagents,
         "lease_active": True,
     }
 
@@ -405,6 +463,8 @@ def poll_delegation_status(job_id: str) -> dict[str, Any]:
     if status["status"] == "completed":
         try:
             parsed = parse_compact_output(status["stdout"])
+            subagent_mode = status.get("subagent_mode", "off")
+            allowed = subagent_mode == "on"
             return {
                 "status": "completed",
                 "job_id": job_id,
@@ -414,6 +474,12 @@ def poll_delegation_status(job_id: str) -> dict[str, Any]:
                 "terminal_reason": parsed.get("terminal_reason", ""),
                 "model": parsed.get("model", ""),
                 "effort": parsed.get("effort", ""),
+                "subagents": {
+                    "mode": subagent_mode,
+                    "allowed": allowed,
+                    "observed_count": 0 if not allowed else None,
+                    "observed_source": "disabled" if not allowed else "not_observable_in_quiet_json",
+                },
             }
         except Exception:
             return {
