@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -19,6 +20,49 @@ from heartbeat import start_heartbeat
 logger = get_logger("opencode_invoker")
 
 ALLOWED_MODELS: frozenset[str] = frozenset()
+
+
+def _opencode_fallback_paths() -> list[str]:
+    """Well-known OpenCode install locations, computed at call time.
+
+    Uses ``os.path.expanduser`` (which respects ``$HOME``) so that tests
+    can override the home directory.
+    """
+    home = os.path.expanduser("~")
+    return [
+        os.path.join(home, ".opencode", "bin", "opencode"),
+        os.path.join(home, ".local", "bin", "opencode"),
+        "/opt/homebrew/bin/opencode",
+        "/usr/local/bin/opencode",
+    ]
+
+
+def _resolve_opencode_binary() -> str:
+    """Resolve the OpenCode executable path.
+
+    Priority:
+    1. ``OPENCODE_BIN`` env var (if it points to an executable file).
+    2. ``shutil.which("opencode")`` — standard PATH lookup.
+    3. Well-known fallback paths (``~/.opencode/bin/opencode`` etc.).
+    """
+    hint = os.environ.get("OPENCODE_BIN")
+    if hint:
+        resolved = shutil.which(hint)
+        if resolved:
+            return resolved
+        # hint might be a direct path not on PATH
+        if os.path.isfile(hint) and os.access(hint, os.X_OK):
+            return hint
+
+    resolved = shutil.which("opencode")
+    if resolved:
+        return resolved
+
+    for candidate in _opencode_fallback_paths():
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+
+    return "opencode"
 
 OPENCODE_ENV_KEYS = (
     "OPENCODE_CONFIG",
@@ -83,13 +127,13 @@ def _normalize_model(model: str) -> str:
 
 
 CLAUDE_CODE_MODEL_MAP: dict[str, str] = {
-    "deepseek-v4-flash": "deepseek/deepseek-v4-flash",
-    "deepseek-v4-flash-free": "deepseek/deepseek-v4-flash",
+    "deepseek-v4-flash": "opencode/deepseek-v4-flash-free",
+    "deepseek-v4-flash-free": "opencode/deepseek-v4-flash-free",
     "deepseek-v4-pro": "deepseek/deepseek-chat",
     "deepseek-v4-pro-free": "deepseek/deepseek-chat",
-    "claude-sonnet-4": "deepseek/deepseek-v4-flash",
-    "claude-sonnet-4-6": "deepseek/deepseek-v4-flash",
-    "claude-haiku-4": "deepseek/deepseek-v4-flash",
+    "claude-sonnet-4": "opencode/deepseek-v4-flash-free",
+    "claude-sonnet-4-6": "opencode/deepseek-v4-flash-free",
+    "claude-haiku-4": "opencode/deepseek-v4-flash-free",
     "claude-opus-4": "deepseek/deepseek-chat",
 }
 
@@ -122,8 +166,9 @@ def _validate_model(model: str) -> str:
 def build_opencode_args(config: OpenCodeInvokerConfig) -> list[str]:
     """Build the opencode run command arguments."""
     model = _validate_model(config.model)
+    opencode_bin = _resolve_opencode_binary()
     args: list[str] = [
-        "opencode",
+        opencode_bin,
         "run",
         "--format", "json",
         "--model", model,

@@ -39,6 +39,11 @@ unset CLAUDE_DELEGATE_PROFILE_LOG
 # Disable heartbeat for all tests to avoid 5s join timeout per test.
 export CLAUDE_DELEGATE_HEARTBEAT_SECONDS=0
 
+# Isolate runtime dir to sandbox so tests never touch .claude-delegate/runtime/jobs.
+# This prevents test cleanup from deleting active async delegation job directories
+# that live under the repo's real runtime dir.
+export CLAUDE_DELEGATE_RUNTIME_DIR="$SANDBOX/runtime"
+
 passed=0
 failed=0
 
@@ -203,6 +208,20 @@ test_runner_stdout "quiet report shows taskType" "taskType: read_only_scan" "che
 test_runner_stdout "quiet report shows Prompt section" "Prompt" "check how many rows are in pattern_data"
 
 test_runner_stdout "quiet report shows prompt mode" "mode: template" "check how many rows are in pattern_data"
+
+test_runner_stdout "quiet report shows subagents section" "Subagents" "check how many rows are in pattern_data"
+
+test_runner_stdout "quiet report shows subagent mode off default" "mode: off" "test prompt"
+
+test_runner_stdout "quiet report shows subagent allowed false default" "allowed: false" "test prompt"
+
+test_runner_stdout "quiet report shows subagent observedSource disabled" "observedSource: disabled" "test prompt"
+
+test_runner_stdout "--allow-subagents shows subagent mode on" "mode: on" --allow-subagents "test prompt"
+
+test_runner_stdout "--allow-subagents shows subagent allowed true" "allowed: true" --allow-subagents "test prompt"
+
+test_runner_stdout "--allow-subagents shows not_observable_in_quiet_json" "not_observable_in_quiet_json" --allow-subagents "test prompt"
 
 test_case "tiny task routes to flash" 0 "--model deepseek-v4-flash[1m]" "check how many rows are in pattern_data"
 
@@ -525,6 +544,73 @@ else
 fi
 rm -f "$outfile"
 
+# Synthetic stream event with Task tool use for subagent counting
+outfile=$(mktemp "$SANDBOX/cs_out.XXXX")
+set +e
+printf '%s\n' \
+  '{"type":"system","subtype":"init","model":"test"}' \
+  '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Task","input":{"prompt":"sub"}}]}}' \
+  '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{}}]}}' \
+  '{"type":"result","result":"done"}' \
+  | CLAUDE_DELEGATE_OBSERVED_SUBAGENT_MODE=on \
+    CLAUDE_DELEGATE_OBSERVED_SUBAGENT_COUNT=1 \
+    "$COMPACT" > "$outfile" 2>/dev/null
+rc=$?
+set -e
+if [ "$rc" -ne 0 ]; then
+  echo "  FAIL  subagent stream count (exit $rc, expected 0)"
+  failed=$((failed+1))
+elif ! grep -qF -e "Subagents" "$outfile"; then
+  echo "  FAIL  subagent stream count (output missing Subagents section)"
+  echo "        output: $(cat "$outfile")"
+  failed=$((failed+1))
+elif ! grep -qF -e "mode: on" "$outfile"; then
+  echo "  FAIL  subagent stream count (output missing mode: on)"
+  echo "        output: $(cat "$outfile")"
+  failed=$((failed+1))
+elif ! grep -qF -e "observedCount: 1" "$outfile"; then
+  echo "  FAIL  subagent stream count (output missing observedCount: 1)"
+  echo "        output: $(cat "$outfile")"
+  failed=$((failed+1))
+else
+  echo "  PASS  subagent stream count from env"
+  passed=$((passed+1))
+fi
+rm -f "$outfile"
+
+# Subagents-only mode: no model/effort metadata, only CLAUDE_DELEGATE_OBSERVED_SUBAGENT_MODE
+outfile=$(mktemp "$SANDBOX/cs_out.XXXX")
+set +e
+printf '%s\n' '{"type":"result","result":"ok","usage":{}}' | \
+  CLAUDE_DELEGATE_OBSERVED_SUBAGENT_MODE=on \
+  "$COMPACT" > "$outfile" 2>/dev/null
+rc=$?
+set -e
+if [ "$rc" -ne 0 ]; then
+  echo "  FAIL  subagents-only mode no model metadata (exit $rc, expected 0)"
+  failed=$((failed+1))
+elif ! grep -qF -e "Subagents" "$outfile"; then
+  echo "  FAIL  subagents-only mode no model metadata (output missing Subagents section)"
+  echo "        output: $(cat "$outfile")"
+  failed=$((failed+1))
+elif ! grep -qF -e "mode: on" "$outfile"; then
+  echo "  FAIL  subagents-only mode no model metadata (output missing mode: on)"
+  echo "        output: $(cat "$outfile")"
+  failed=$((failed+1))
+elif ! grep -qF -e "observedSource: not_observable_in_quiet_json" "$outfile"; then
+  echo "  FAIL  subagents-only mode no model metadata (output missing observedSource)"
+  echo "        output: $(cat "$outfile")"
+  failed=$((failed+1))
+elif ! grep -qF -e "Result" "$outfile"; then
+  echo "  FAIL  subagents-only mode no model metadata (output missing Result)"
+  echo "        output: $(cat "$outfile")"
+  failed=$((failed+1))
+else
+  echo "  PASS  subagents-only mode no model metadata"
+  passed=$((passed+1))
+fi
+rm -f "$outfile"
+
 # ---- claude_adapter.py unit tests ----
 
 echo ""
@@ -605,6 +691,40 @@ test_adapter_py \
   "from claude_adapter import _deserialize
 events = _deserialize('{\"type\":\"result\",\"result\":\"ok\"}')
 print('count: {}'.format(len(events)))"
+
+test_adapter_py \
+  "claude_adapter counts Task tool use event" \
+  "subagent_count: 1" 0 \
+  "from claude_adapter import parse_claude_events
+events = [
+    {'type':'system','subtype':'init','model':'m'},
+    {'type':'assistant','message':{'content':[{'type':'tool_use','name':'Task','input':{}}]}},
+    {'type':'result','result':'ok'}
+]
+result = parse_claude_events(events)
+print('subagent_count: {}'.format(result.get('subagent_count', 0)))"
+
+test_adapter_py \
+  "claude_adapter counts Agent tool use event" \
+  "subagent_count: 1" 0 \
+  "from claude_adapter import parse_claude_events
+events = [
+    {'type':'assistant','message':{'content':[{'type':'tool_use','name':'Agent','input':{}}]}},
+    {'type':'result','result':'ok'}
+]
+result = parse_claude_events(events)
+print('subagent_count: {}'.format(result.get('subagent_count', 0)))"
+
+test_adapter_py \
+  "claude_adapter ignores non-Task tool use" \
+  "subagent_count: 0" 0 \
+  "from claude_adapter import parse_claude_events
+events = [
+    {'type':'assistant','message':{'content':[{'type':'tool_use','name':'Read','input':{}}]}},
+    {'type':'result','result':'ok'}
+]
+result = parse_claude_events(events)
+print('subagent_count: {}'.format(result.get('subagent_count', 0)))"
 
 # ---- opencode_adapter.py unit tests ----
 
@@ -952,6 +1072,59 @@ print('cleanup_disabled_ok')
   fi
 }
 test_cleanup_env
+
+# Regression: cleanup_expired_jobs must skip a running job whose PID is alive,
+# even if its started_at timestamp is older than the retention cutoff.
+test_cleanup_skip_running() {
+  local name="cleanup_expired_jobs skips old running job with live PID"
+  if python3 -c "
+import sys, os, json
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+from job_manager import cleanup_expired_jobs, get_jobs_dir, create_job_id, create_job_meta
+jd = get_jobs_dir()
+jid = create_job_id()
+d = jd / jid
+d.mkdir(parents=True, exist_ok=True)
+import datetime
+old_ts = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=30)).isoformat()
+meta = {'job_id': jid, 'pid': os.getpid(), 'started_at': old_ts, 'status': 'running', 'model': 'pro', 'prompt': 'test', 'effort': 'max', 'permission_mode': 'bypassPermissions', 'mcp_mode': 'all', 'output_mode': 'quiet'}
+(d / 'meta.json').write_text(json.dumps(meta) + '\n', encoding='utf-8')
+removed = cleanup_expired_jobs(retention_days=7)
+assert removed == 0, f'Expected 0 removed (PID alive), got {removed}'
+assert d.exists(), f'Running job dir was deleted: {d}'
+import shutil
+shutil.rmtree(str(d), ignore_errors=True)
+print('cleanup_skip_running_ok')
+" 2>&1; then
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  else
+    echo "  FAIL  $name"
+    failed=$((failed+1))
+  fi
+}
+test_cleanup_skip_running
+
+# Regression: get_jobs_dir() resolves under the sandbox runtime during tests,
+# never falling back to .claude-delegate/runtime/jobs in the repo.
+test_runtime_isolation() {
+  local name="get_jobs_dir resolves under sandbox runtime during tests"
+  if python3 -c "
+import sys, os
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+from job_manager import get_jobs_dir
+jd = str(get_jobs_dir())
+assert '$SANDBOX/runtime/jobs' in jd, f'jobs_dir outside sandbox: {jd}'
+print('runtime_isolation_ok')
+" 2>&1; then
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  else
+    echo "  FAIL  $name"
+    failed=$((failed+1))
+  fi
+}
+test_runtime_isolation
 
 # ---- CCDM-44: Audit record contract ---- 
 
@@ -1781,7 +1954,11 @@ try:
     settings.write_text(json.dumps({'env': {'ANTHROPIC_BASE_URL': 'https://example.invalid', 'ANTHROPIC_AUTH_TOKEN': 'fake-token'}}))
     c = InvokerConfig(model='pro', effort='max', permission_mode='bypassPermissions', mcp_mode='all', subagent_mode='off', heartbeat_seconds=0, output_mode='quiet', prompt='test')
     invoke_claude(c)
-    config_dir = (Path(cwd) / '.claude-delegate' / 'runtime' / 'claude-config').resolve()
+    # config dir is resolved from CLAUDE_DELEGATE_RUNTIME_DIR, not CWD.
+    # No .resolve() — the invoker uses the raw path, and /var -> /private/var
+    # symlink on macOS would cause mismatch.
+    runtime_root = Path(os.environ.get('CLAUDE_DELEGATE_RUNTIME_DIR', str(Path.cwd() / '.claude-delegate' / 'runtime')))
+    config_dir = runtime_root / 'claude-config'
     captured = Path(capture.name).read_text()
     assert f'CLAUDE_CONFIG_DIR:{config_dir}' in captured
     runtime_settings = json.loads((config_dir / 'settings.json').read_text())
@@ -1862,6 +2039,26 @@ test_opencode_invoker_py \
 c = OpenCodeInvokerConfig(model='pro', permission_mode='bypassPermissions', mcp_mode='all', subagent_mode='off', heartbeat_seconds=0, output_mode='quiet', prompt='test')
 args = build_opencode_args(c)
 print('--dangerously-skip-permissions:{}'.format('--dangerously-skip-permissions' in args))"
+
+test_opencode_invoker_py \
+  "build_opencode_args flash model maps to opencode/deepseek-v4-flash-free" \
+  "MODEL_FLASH_OK" 0 \
+  "from opencode_invoker import build_opencode_args, OpenCodeInvokerConfig
+c = OpenCodeInvokerConfig(model='deepseek-v4-flash', permission_mode='bypassPermissions', mcp_mode='all', subagent_mode='off', heartbeat_seconds=0, output_mode='quiet', prompt='test')
+args = build_opencode_args(c)
+model_flag = args[args.index('--model') + 1]
+assert model_flag == 'opencode/deepseek-v4-flash-free', f'expected opencode/deepseek-v4-flash-free, got {model_flag}'
+print('MODEL_FLASH_OK')"
+
+test_opencode_invoker_py \
+  "build_opencode_args flash model tier maps to opencode/deepseek-v4-flash-free" \
+  "MODEL_FLASH_TIER_OK" 0 \
+  "from opencode_invoker import build_opencode_args, OpenCodeInvokerConfig
+c = OpenCodeInvokerConfig(model='deepseek-v4-flash[1m]', permission_mode='bypassPermissions', mcp_mode='all', subagent_mode='off', heartbeat_seconds=0, output_mode='quiet', prompt='test')
+args = build_opencode_args(c)
+model_flag = args[args.index('--model') + 1]
+assert model_flag == 'opencode/deepseek-v4-flash-free', f'expected opencode/deepseek-v4-flash-free, got {model_flag}'
+print('MODEL_FLASH_TIER_OK')"
 
 test_opencode_invoker_py \
   "build_opencode_mcp_env mode=all returns empty dict" \
@@ -1951,6 +2148,97 @@ test_opencode_invoker_py \
 result = build_opencode_mcp_env('none')
 assert 'OPENCODE_CONFIG_CONTENT' not in result, f'should not have OPENCODE_CONFIG_CONTENT, got {result}'
 print('MCP_NONE_CONTENT_OK')"
+
+test_opencode_invoker_py \
+  "_resolve_opencode_binary honors OPENCODE_BIN" \
+  "OPENCODE_BIN_OK" 0 \
+  "import json, os, tempfile, pathlib
+from opencode_invoker import _resolve_opencode_binary
+
+d = tempfile.mkdtemp()
+fake_bin = pathlib.Path(d) / 'my-opencode'
+fake_bin.write_text('#!/bin/bash\necho fake')
+fake_bin.chmod(0o755)
+
+os.environ['OPENCODE_BIN'] = str(fake_bin)
+try:
+    result = _resolve_opencode_binary()
+    assert result == str(fake_bin), f'got {result}'
+    print('OPENCODE_BIN_OK')
+finally:
+    del os.environ['OPENCODE_BIN']
+    import shutil
+    shutil.rmtree(d)"
+
+test_opencode_invoker_py \
+  "_resolve_opencode_binary PATH lookup works" \
+  "PATH_LOOKUP_OK" 0 \
+  "import json, os, tempfile, pathlib
+from opencode_invoker import _resolve_opencode_binary
+
+d = tempfile.mkdtemp()
+fake_bin = pathlib.Path(d) / 'opencode'
+fake_bin.write_text('#!/bin/bash\necho fake')
+fake_bin.chmod(0o755)
+
+old_path = os.environ.get('PATH', '')
+os.environ['PATH'] = f'{d}:{old_path}'
+try:
+    result = _resolve_opencode_binary()
+    assert result == str(fake_bin), f'got {result}'
+    print('PATH_LOOKUP_OK')
+finally:
+    os.environ['PATH'] = old_path
+    import shutil
+    shutil.rmtree(d)"
+
+test_opencode_invoker_py \
+  "_resolve_opencode_binary falls back to ~/.opencode/bin/opencode" \
+  "HOME_FALLBACK_OK" 0 \
+  "import json, os, tempfile, pathlib
+from opencode_invoker import _resolve_opencode_binary
+
+d = tempfile.mkdtemp()
+opencode_dir = pathlib.Path(d) / '.opencode' / 'bin'
+opencode_dir.mkdir(parents=True)
+fake_bin = opencode_dir / 'opencode'
+fake_bin.write_text('#!/bin/bash\necho fake')
+fake_bin.chmod(0o755)
+
+old_path = os.environ.get('PATH', '')
+old_home = os.environ.get('HOME', '')
+os.environ['PATH'] = '/usr/bin:/bin'
+os.environ['HOME'] = str(d)
+try:
+    result = _resolve_opencode_binary()
+    assert result == str(fake_bin), f'got {result}'
+    print('HOME_FALLBACK_OK')
+finally:
+    os.environ['PATH'] = old_path
+    os.environ['HOME'] = old_home
+    import shutil
+    shutil.rmtree(d)"
+
+test_opencode_invoker_py \
+  "_resolve_opencode_binary returns 'opencode' when nothing found" \
+  "FALLBACK_RAW_OK" 0 \
+  "import os, tempfile
+from opencode_invoker import _resolve_opencode_binary
+
+old_path = os.environ.get('PATH', '')
+old_home = os.environ.get('HOME', '')
+os.environ['PATH'] = '/usr/bin:/bin'
+d = tempfile.mkdtemp()
+os.environ['HOME'] = str(d)
+try:
+    result = _resolve_opencode_binary()
+    assert result == 'opencode', f'got {result}'
+    print('FALLBACK_RAW_OK')
+finally:
+    os.environ['PATH'] = old_path
+    os.environ['HOME'] = old_home
+    import shutil
+    shutil.rmtree(d)"
 
 # ---- mcp_server.py tests ----
 
@@ -2726,6 +3014,59 @@ assert record['totalCostUsd'] is not None
 assert record['terminalReason'] is not None
 os.unlink(log_path)
 print('profile_metadata_ok')"
+
+test_pipeline_py \
+  "DelegationResult.subagents default off" \
+  "subagents_off_ok" 0 \
+  "from pipeline import run_delegation_pipeline
+result = run_delegation_pipeline('test prompt', subagent_mode='off', output_mode='quiet')
+sa = result.subagents
+assert sa['mode'] == 'off', f'expected off, got {sa}'
+assert sa['allowed'] == False
+assert sa['observed_count'] == 0
+assert sa['observed_source'] == 'disabled'
+print('subagents_off_ok')"
+
+test_pipeline_py \
+  "DelegationResult.subagents on quiet mode" \
+  "subagents_on_quiet_ok" 0 \
+  "from pipeline import run_delegation_pipeline
+result = run_delegation_pipeline('test prompt', subagent_mode='on', output_mode='quiet')
+sa = result.subagents
+assert sa['mode'] == 'on', f'expected on, got {sa}'
+assert sa['allowed'] == True
+assert sa['observed_count'] is None
+assert sa['observed_source'] == 'not_observable_in_quiet_json'
+print('subagents_on_quiet_ok')"
+
+test_pipeline_py \
+  "DelegationResult.subagents on stream mode sets stream_events source" \
+  "subagents_on_stream_ok" 0 \
+  "from pipeline import run_delegation_pipeline
+result = run_delegation_pipeline('test prompt', subagent_mode='on', output_mode='stream')
+sa = result.subagents
+assert sa['mode'] == 'on'
+assert sa['allowed'] == True
+assert sa['observed_source'] == 'stream_events'
+print('subagents_on_stream_ok')"
+
+test_pipeline_py \
+  "profile JSONL includes subagents field" \
+  "profile_subagents_ok" 0 \
+  "from pipeline import run_delegation_pipeline
+import os, json, tempfile
+log_path = tempfile.mktemp(suffix='.jsonl')
+os.environ['CLAUDE_DELEGATE_PROFILE_LOG'] = log_path
+result = run_delegation_pipeline('test prompt', subagent_mode='off', output_mode='quiet')
+with open(log_path) as f:
+    lines = [l for l in f if l.strip()]
+assert len(lines) == 1
+record = json.loads(lines[0])
+sa = record.get('subagents', {})
+assert sa.get('mode') == 'off'
+assert sa.get('allowed') == False
+os.unlink(log_path)
+print('profile_subagents_ok')"
 
 # ---- profile_logger.py tests ----
 
@@ -3604,6 +3945,57 @@ test_job_manager_py \
 status = get_job_status('nonexistent-job')
 print('status={}'.format(status.get('status')))"
 
+# ---- async liveness regression tests ----
+
+echo ""
+echo "=== async liveness ==="
+
+# get_job_status includes elapsed_seconds for running jobs
+test_job_manager_py \
+  "get_job_status running job includes elapsed_seconds" \
+  "elapsed_seconds_OK" 0 \
+  "from job_manager import create_job_meta, get_job_status, get_jobs_dir
+import shutil, os
+jid = 'test-elapsed'
+jd = get_jobs_dir() / jid
+if jd.exists():
+    shutil.rmtree(jd)
+# Use our own PID so the job is detected as running
+create_job_meta(jid, pid=os.getpid(), prompt='test', model='pro', effort='max', permission_mode='bypassPermissions', mcp_mode='all', output_mode='quiet')
+s = get_job_status(jid)
+assert s.get('status') == 'running', f'expected running, got {s.get(\"status\")}'
+assert s.get('elapsed_seconds', -99) >= 0, f'expected elapsed_seconds >= 0, got {s.get(\"elapsed_seconds\")}'
+assert s.get('pid_alive') == True
+print('elapsed_seconds_OK')
+shutil.rmtree(jd)"
+
+# heartbeat_seconds from env var is propagated to async config
+test_job_manager_py \
+  "start_delegation_async reads CLAUDE_DELEGATE_HEARTBEAT_SECONDS env" \
+  "heartbeat_read_OK" 0 \
+  "import os, tempfile, shutil, signal
+os.environ['CLAUDE_DELEGATE_HEARTBEAT_SECONDS'] = '7'
+os.environ['CLAUDE_DELEGATE_TEST_CAPTURE'] = os.environ.get('CLAUDE_DELEGATE_TEST_CAPTURE', '/dev/null')
+sandbox = tempfile.mkdtemp()
+os.environ['CLAUDE_DELEGATE_RUNTIME_DIR'] = os.path.join(sandbox, 'runtime')
+from job_manager import get_jobs_dir, read_job_config
+from pipeline import start_delegation_async
+result = start_delegation_async('test heartbeat config')
+jid = result.get('job_id', '')
+assert jid, 'no job_id'
+cfg = read_job_config(jid)
+assert cfg is not None, 'no config persisted'
+assert cfg.get('heartbeat_seconds') == 7, f'expected heartbeat_seconds=7, got {cfg.get(\"heartbeat_seconds\")}'
+sup_pid = result.get('pid', 0)
+if sup_pid:
+    try: os.kill(sup_pid, signal.SIGTERM)
+    except OSError: pass
+jd = get_jobs_dir() / jid
+if jd.exists():
+    shutil.rmtree(jd, ignore_errors=True)
+shutil.rmtree(sandbox, ignore_errors=True)
+print('heartbeat_read_OK')"
+
 # ---- start_delegation_async pipeline test ----
 
 test_job_manager_py \
@@ -3808,8 +4200,6 @@ sleep 30
 FAKESLEEP
 chmod +x "$SANDBOX/claude-sleep"
 
-export CLAUDE_DELEGATE_RUNTIME_DIR="$SANDBOX/runtime"
-
 # Test 1: fake claude exits 0 with valid result JSON → poll returns completed
 wrap_start_out=$(mktemp "$SANDBOX/wrap_start.XXXX")
 set +e
@@ -3896,9 +4286,10 @@ rm -f "$wrap_start_out3" "$wrap_start_out3b"
 
 # Restore original fake claude (exit 0 with valid JSON)
 cp "$SANDBOX/claude-ok" "$SANDBOX/claude"
-# Clean up runtime dir for subsequent tests
-rm -rf "$CLAUDE_DELEGATE_RUNTIME_DIR"
-unset CLAUDE_DELEGATE_RUNTIME_DIR
+# Clean up runtime artifacts between test sections, but keep
+# CLAUDE_DELEGATE_RUNTIME_DIR pointing to sandbox so subsequent
+# tests never fall back to the repo's real runtime dir.
+rm -rf "${CLAUDE_DELEGATE_RUNTIME_DIR:?}"/*
 
 # ---- regression: large single-line stdout parses correctly on poll ----
 echo ""

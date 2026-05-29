@@ -28,6 +28,7 @@ def build_profile_record(
     total_cost_usd: float | None = None,
     terminal_reason: str | None = None,
     is_error: bool = False,
+    subagents: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -47,6 +48,7 @@ def build_profile_record(
         "totalCostUsd": total_cost_usd,
         "terminalReason": terminal_reason,
         "isError": is_error,
+        "subagents": subagents if isinstance(subagents, dict) else {},
     }
 
 

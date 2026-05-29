@@ -41,6 +41,13 @@ The `--start` / `--poll` modes enforce single-flight lease semantics to prevent 
 - [ ] Do not treat a long-running invocation as evidence of stuckness by itself. Poll the heartbeat/log-tail first.
 - [ ] If `--start` returns `"status": "lease_held"`, the orchestrator must wait for that job to complete. No retry, reduced correction plan, takeover, or second delegation is allowed while the lease is active.
 
+##### Poll Backoff
+
+- [ ] Poll every 30s for the first 2 checks after `--start`.
+- [ ] Once `pid_alive` and `child_pid_alive` are both true and stable (unchanged across two consecutive polls), back off to every 2–5 min.
+- [ ] Use `--status` for lightweight between-polls (stat() sizes only, no file tails). Switch to `--poll` for full detail only when the job completes or needs diagnosis.
+- [ ] Never poll faster than 30s. The supervisor writes heartbeat lines to stderr every heartbeat interval — faster polling wastes tokens with no new information.
+
 #### Compact Gate
 - [ ] Wait for the wrapper to complete.
 - [ ] Show the compact result: changed files, verification results, token usage/cost, terminal status.
@@ -77,7 +84,8 @@ Fallback: run scripts/run-claude-code.sh <prompt> from the skill directory.
 | Flag | Env Var | Effect |
 |------|---------|--------|
 | `--start` | — | Launch in background, return job_id JSON (async mode). |
-| `--poll JOB_ID` | — | Poll async job status. |
+| `--poll JOB_ID` | — | Poll async job status with file tail reads. |
+| `--status JOB_ID` | — | Lightweight poll — stat() sizes only, no file tails. |
 | `--pro` / `--flash` | `CLAUDE_DELEGATE_MODEL` | Model selection |
 | `--qwen` | `CLAUDE_DELEGATE_MODEL` | Qwen model selection |
 | `--effort VALUE` | `CLAUDE_DELEGATE_EFFORT` | Reasoning budget |
@@ -116,6 +124,9 @@ Add this to your project `.mcp.json` (or the orchestrator's `.mcp.json`) and the
 |------|---------|
 | `classify_task` | Classify a prompt by size, type, model tier, effort, permission mode, and context budget |
 | `delegate_task` | Full delegation pipeline: classify, envelope, invoke, compact, return structured result with usage and cost |
+| `start_delegation` | Launch an async delegation in background, return job_id and lease status |
+| `poll_delegation` | Poll async job status with file tail reads for full detail |
+| `poll_delegation_compact` | Lightweight poll — stat() sizes only, no file tail reads. Saves tokens |
 | `aggregate_profile` | Aggregate `CLAUDE_DELEGATE_PROFILE_LOG` JSONL into a text or JSON summary |
 | `format_jira_text` | Strip Markdown formatting for Jira-safe plain text |
 
@@ -139,10 +150,21 @@ After Claude Code returns, show the user Claude Code's output. In quiet mode, sh
 
 When delegating Jira or issue tracker work, apply Jira-safe plain text formatting (no Markdown). See [docs/jira-workflow.md](docs/jira-workflow.md) for details and the `scripts/jira_safe_text.py` utility.
 
+## Token Economy
+
+Guidelines for minimizing token waste during delegation loops:
+
+- **Repeated polls silently.** Only report state changes: started, heartbeat/tail changed, completed, failed, missing. A poll that returns the same `stdout_bytes`, `stderr_bytes`, and status as last time is not actionable and should be silently absorbed.
+- **Use `ps -p <pid> -o pid,ppid,stat,etime,%cpu,%mem`** to check liveness when the heartbeat is ambiguous. Do not include the `command` column — it prints the full prompt text.
+- **Prefer `git diff --stat` + `git diff --name-only`** before pulling the full `git diff`. Full diffs are only needed for review; a file list and change counts suffice for status checks.
+- **Capture test output to file, report final summary only.** Raw test output can be thousands of tokens. Run tests, redirect to file, and surface only pass/fail counts and failure lines.
+- **Keep delegate prompts concise.** Send an exact plan + file list, not a full context replay. The pipeline's prompt envelope already handles classification — the orchestrator should add only what the executor cannot infer.
+
 ## Known Failure Modes
 
 - **Apparent hang**: `claude -p` with default permissions blocks on permission prompts. The wrapper defaults to `bypassPermissions` to avoid this. Use `--interactive` (acceptEdits) to observe tool commands before they run.
 - **Silent executor**: During long delegations, the pipeline prints a heartbeat to stderr every 30s. If Claude Code appears silent, check stderr first — an active heartbeat means it's running. Set `CLAUDE_DELEGATE_HEARTBEAT_SECONDS=0` to disable (e.g., CI).
+- **Async quiet mode**: In async `--quiet` mode (`--output-format json`), Claude Code emits stdout only on completion. The poll response shows `stdout_bytes=0` and `stderr_bytes=0` while the job is running — this is expected. Use `elapsed_seconds` and `child_pid_alive` in the poll response to confirm liveness. For stderr progress, set `CLAUDE_DELEGATE_HEARTBEAT_SECONDS` to a positive value; the async supervisor writes heartbeat lines to `stderr.txt` which are visible via poll tail.
 - **Premature kill/retry**: The orchestrator may assume Claude Code is stuck and start a reduced correction plan. `--start` / `--poll` prevents this via single-flight lease. Poll with `--poll <job_id>` rather than restarting.
 - **Provider/auth errors**: Usually means the provider can't serve the model, or the token is expired. Confirm `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and model values without printing secrets.
 
