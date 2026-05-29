@@ -17,6 +17,7 @@ def parse_claude_events(events: list[dict[str, Any]]) -> dict[str, Any]:
     init: dict[str, Any] | None = None
     result: dict[str, Any] | None = None
     errors: list[str] = []
+    subagent_count = 0
 
     for event in events:
         event_type = event.get("type")
@@ -28,6 +29,13 @@ def parse_claude_events(events: list[dict[str, Any]]) -> dict[str, Any]:
             result = event
         elif event.get("is_error") is True:
             errors.append(json.dumps(event, ensure_ascii=False)[:1000])
+
+        msg = event.get("message")
+        if isinstance(msg, dict):
+            for block in (msg.get("content") or []):
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    if block.get("name") in ("Task", "Agent"):
+                        subagent_count += 1
 
     usage = (result or {}).get("usage")
     cost_usd = (result or {}).get("total_cost_usd", 0.0)
@@ -54,6 +62,7 @@ def parse_claude_events(events: list[dict[str, Any]]) -> dict[str, Any]:
         "permission_mode": permission_mode,
         "mcp_mode": mcp_mode,
         "cwd": cwd,
+        "subagent_count": subagent_count,
         "is_error": is_error,
         "has_init": init is not None,
         "has_result": result is not None,

@@ -26,6 +26,10 @@ def _print_usage() -> None:
         "       run-pipeline.py --poll <job_id>",
         file=sys.stderr,
     )
+    print(
+        "       run-pipeline.py --status <job_id>",
+        file=sys.stderr,
+    )
 
 
 def main() -> int:
@@ -40,6 +44,8 @@ def main() -> int:
         return _handle_start()
     elif sys.argv[1] == "--poll":
         return _handle_poll()
+    elif sys.argv[1] == "--status":
+        return _handle_status()
     elif sys.argv[1] == "--supervise":
         return _handle_supervise()
     else:
@@ -89,6 +95,22 @@ def _handle_poll() -> int:
 
     job_id = sys.argv[2]
     result = poll_delegation_status(job_id)
+
+    print(json.dumps(result, ensure_ascii=False))
+    if result.get("status") == "not_found":
+        return 1
+    return 0
+
+
+def _handle_status() -> int:
+    from job_manager import get_job_status_compact
+
+    if len(sys.argv) < 3 or not sys.argv[2]:
+        print("Missing job_id for --status", file=sys.stderr)
+        return 2
+
+    job_id = sys.argv[2]
+    result = get_job_status_compact(job_id)
 
     print(json.dumps(result, ensure_ascii=False))
     if result.get("status") == "not_found":
@@ -161,6 +183,21 @@ def _handle_exec() -> int:
             print(f"- taskType: {result.task_type}")
         if result.context_budget:
             print(f"- contextBudget: {result.context_budget}")
+        print()
+
+    subagents = getattr(result, "subagents", None) or {}
+    if subagents:
+        print("Subagents")
+        mode = subagents.get("mode", "off")
+        allowed = subagents.get("allowed", False)
+        observed_count = subagents.get("observed_count")
+        observed_source = subagents.get("observed_source", "")
+        print(f"- mode: {mode}")
+        print(f"- allowed: {str(allowed).lower()}")
+        count_str = str(observed_count) if observed_count is not None else "unknown"
+        print(f"- observedCount: {count_str}")
+        if observed_source:
+            print(f"- observedSource: {observed_source}")
         print()
 
     if result.prompt_mode or result.prompt_template or result.original_prompt_chars or result.prepared_prompt_chars:

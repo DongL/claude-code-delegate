@@ -79,7 +79,9 @@ The heartbeat/monitor thread runs identically in both branches. The OpenCode var
 
 ### D1: Model mapping via CLAUDE_CODE_MODEL_MAP
 
-OpenCode uses `provider/model` format (`deepseek/deepseek-v4-flash`). Claude Code uses short names (`deepseek-v4-flash[1m]`). A static dictionary maps the 8 most common Claude Code model IDs to OpenCode equivalents.
+OpenCode uses provider-prefixed model names (`opencode/deepseek-v4-flash-free`). Claude Code uses short names with a context-window suffix (`deepseek-v4-flash[1m]`). A static dictionary maps the 8 most common Claude Code model IDs to OpenCode equivalents.
+
+Flash-like models (e.g., `deepseek-v4-flash`, `claude-sonnet-4`) map to `opencode/deepseek-v4-flash-free`, the free DeepSeek model available on OpenCode Zen. Pro models map to `deepseek/deepseek-chat`.
 
 Unmapped models fall back to `deepseek/{base}`. This is a reasonable default because most custom providers in this deployment chain are DeepSeek-based. If a non-DeepSeek provider is needed, the user passes the full `provider/model` string (which contains `/` and passes through unmapped).
 
