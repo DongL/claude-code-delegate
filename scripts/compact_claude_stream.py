@@ -92,6 +92,9 @@ def main() -> int:
     if parsed["is_error"] and "error result" not in errors:
         errors.append("error result")
 
+    subagent_mode = os.environ.get("CLAUDE_DELEGATE_OBSERVED_SUBAGENT_MODE")
+    subagent_count = os.environ.get("CLAUDE_DELEGATE_OBSERVED_SUBAGENT_COUNT")
+
     task_class = os.environ.get("CLAUDE_DELEGATE_OBSERVED_CLASS")
     task_type = os.environ.get("CLAUDE_DELEGATE_OBSERVED_TASK_TYPE")
     context_budget = os.environ.get("CLAUDE_DELEGATE_OBSERVED_CONTEXT_BUDGET")
@@ -118,8 +121,11 @@ def main() -> int:
 
     executor_name = os.environ.get("CLAUDE_DELEGATE_EXECUTOR_NAME", "Claude Code")
 
-    if model or effort or permission_mode or mcp_mode or has_profile or cwd:
-        print(executor_name)
+    has_metadata = bool(model or effort or permission_mode or mcp_mode or has_profile or cwd)
+
+    if has_metadata or subagent_mode:
+        if has_metadata:
+            print(executor_name)
         if model:
             print(f"- model: {model}")
         if effort:
@@ -147,8 +153,26 @@ def main() -> int:
         if cwd:
             print(f"- cwd: {cwd}")
 
+        if subagent_mode:
+            if has_metadata:
+                print()
+            print("Subagents")
+            allowed = subagent_mode == "on"
+            print(f"- mode: {subagent_mode}")
+            print(f"- allowed: {str(allowed).lower()}")
+            if subagent_count is not None:
+                print(f"- observedCount: {subagent_count}")
+            else:
+                print(f"- observedCount: unknown")
+            if not allowed:
+                print(f"- observedSource: disabled")
+            elif subagent_count is not None:
+                print(f"- observedSource: stream_events")
+            else:
+                print(f"- observedSource: not_observable_in_quiet_json")
+
     if has_result:
-        if model or effort or permission_mode or mcp_mode or has_profile or cwd:
+        if has_metadata or subagent_mode:
             print()
         print("Result")
         print(result.get("result") or "")
