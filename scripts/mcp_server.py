@@ -53,7 +53,7 @@ def delegate_task(
 
     # Reload pipeline and its key deps to pick up code changes without
     # restarting the MCP server process (long-lived over stdio).
-    for mod_name in ("classifier", "invoker", "opencode_invoker", "pipeline"):
+    for mod_name in ("job_manager", "classifier", "invoker", "opencode_invoker", "pipeline"):
         m = sys.modules.get(mod_name)
         if m is not None:
             importlib.reload(m)
@@ -121,7 +121,7 @@ async def start_delegation(
     """Start an async delegation job. Returns job_id and status."""
     import importlib
 
-    for mod_name in ("classifier", "invoker", "opencode_invoker", "pipeline"):
+    for mod_name in ("job_manager", "classifier", "invoker", "opencode_invoker", "pipeline"):
         m = sys.modules.get(mod_name)
         if m is not None:
             importlib.reload(m)
@@ -154,7 +154,7 @@ async def poll_delegation(job_id: str) -> dict[str, Any]:
     """Poll the status of an async delegation job."""
     import importlib
 
-    for mod_name in ("classifier", "invoker", "opencode_invoker", "pipeline"):
+    for mod_name in ("job_manager", "classifier", "invoker", "opencode_invoker", "pipeline"):
         m = sys.modules.get(mod_name)
         if m is not None:
             importlib.reload(m)
