@@ -1977,6 +1977,103 @@ finally:
             os.environ[key] = value
     os.unlink(capture.name)"
 
+# ---- CCDM-47: MCP delegate empty-result regression ----
+
+echo ""
+echo "=== CCDM-47: MCP delegate empty-result guard ==="
+
+test_pipeline_py() {
+  local name="$1" expected_out="$2" expected_exit="$3"
+  local py_script; py_script=$(mktemp "$SANDBOX/pl_script.XXXX.py")
+  cat > "$py_script" <<PYEOF
+import sys, os, json, tempfile
+sys.path.insert(0, "$SCRIPT_DIR/../scripts")
+$4
+PYEOF
+  local outfile; outfile=$(mktemp "$SANDBOX/pl_out.XXXX")
+  local errfile; errfile=$(mktemp "$SANDBOX/pl_err.XXXX")
+  set +e
+  python3 "$py_script" > "$outfile" 2> "$errfile"
+  local rc=$?
+  set -e
+  if [ "$rc" -ne "$expected_exit" ]; then
+    echo "  FAIL  $name (exit $rc, expected $expected_exit)"
+    echo "        stderr: $(cat "$errfile")"
+    failed=$((failed+1))
+  elif [ -n "$expected_out" ] && ! grep -qF -e "$expected_out" "$outfile"; then
+    echo "  FAIL  $name (output missing: $expected_out)"
+    echo "        output: $(cat "$outfile")"
+    echo "        stderr: $(cat "$errfile")"
+    failed=$((failed+1))
+  else
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  fi
+  rm -f "$py_script" "$outfile" "$errfile"
+}
+
+# Bad contract: Claude result with empty result but usage.
+# Compact CLI shows usage parsed but result text empty (baseline bug).
+test_compact "empty-result guard: parse_compact_output baseline" 0 "input_tokens=5" \
+  '{"type":"result","result":"","usage":{"input_tokens":5,"output_tokens":10}}'
+
+# Bad contract: OpenCode step_finish with tokens but no text events.
+test_compact "empty-result guard: opencode step_finish no text" 0 "input_tokens=50" \
+  '{"type":"step_start","part":{"type":"step-start"}}
+{"type":"step_finish","part":{"tokens":{"input":50,"output":10},"cost":0.005}}'
+
+# Pipeline-level: run_delegation_pipeline with fake claude producing bad contract.
+# The guard must fall back to raw stdout and set terminal_reason.
+test_pipeline_py \
+  "empty-result guard: run_delegation_pipeline falls back to raw stdout" \
+  "GUARD_FALLBACK_OK" 0 \
+  "import sys, os, json, tempfile, pathlib
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+
+# Create a fake claude that outputs empty result with usage
+sandbox = tempfile.mkdtemp()
+fake_claude = pathlib.Path(sandbox) / 'claude'
+fake_claude.write_text('#!/usr/bin/env bash\ncat <<JSONEOF\n{\"type\":\"result\",\"result\":\"\",\"usage\":{\"input_tokens\":5,\"output_tokens\":10}}\nJSONEOF\n')
+fake_claude.chmod(0o755)
+
+old_path = os.environ.get('PATH', '')
+try:
+    os.environ['PATH'] = sandbox + ':' + old_path
+    from pipeline import run_delegation_pipeline
+    result = run_delegation_pipeline('test prompt')
+    assert result.result != '', f'expected fallback result, got empty'
+    assert result.terminal_reason == 'empty_result_fallback', f'expected empty_result_fallback, got {result.terminal_reason}'
+    print('GUARD_FALLBACK_OK')
+finally:
+    os.environ['PATH'] = old_path
+    import shutil
+    shutil.rmtree(sandbox)"
+
+# Poll path: poll_delegation_status with stored bad contract stdout
+test_pipeline_py \
+  "empty-result guard: poll_delegation_status falls back to raw stdout" \
+  "POLL_GUARD_OK" 0 \
+  "import sys, os, json, tempfile, pathlib
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+
+from job_manager import create_job_id, get_jobs_dir, create_job_meta, write_job_result
+from pipeline import poll_delegation_status
+
+jid = create_job_id()
+jobs_dir = get_jobs_dir()
+d = jobs_dir / jid
+d.mkdir(parents=True, exist_ok=True)
+create_job_meta(jid, os.getpid(), 'test', 'm', 'low', 'bypass', 'none', 'quiet')
+
+# Write bad contract stdout
+write_job_result(jid, 0, '{\"type\":\"result\",\"result\":\"\",\"usage\":{\"input_tokens\":5,\"output_tokens\":10}}', '')
+
+result = poll_delegation_status(jid)
+assert result.get('status') == 'completed', f'expected completed, got {result.get(\"status\")}'
+assert result.get('result') != '', f'expected fallback result, got empty'
+assert result.get('terminal_reason') == 'empty_result_fallback', f'expected empty_result_fallback, got {result.get(\"terminal_reason\")}'
+print('POLL_GUARD_OK')"
+
 # ---- opencode_invoker.py tests ----
 
 echo ""

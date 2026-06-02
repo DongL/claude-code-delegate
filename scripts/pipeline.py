@@ -266,6 +266,16 @@ def run_delegation_pipeline(
         else:
             parsed = parse_compact_output(result.stdout)
 
+        # Guard: if parser returned empty result but executor produced
+        # non-empty stdout, fall back to raw stdout and set diagnostic
+        # terminal_reason.  Prevents MCP delegate_task from silently
+        # returning success with result="" and terminal_reason="".
+        if not parsed.get("result") and result.stdout.strip():
+            if result.returncode == 0:
+                parsed["result"] = result.stdout
+            if not parsed.get("terminal_reason"):
+                parsed["terminal_reason"] = "empty_result_fallback"
+
         if result.returncode != 0:
             logger.error(
                 "claude invocation failed",
@@ -463,6 +473,15 @@ def poll_delegation_status(job_id: str) -> dict[str, Any]:
     if status["status"] == "completed":
         try:
             parsed = parse_compact_output(status["stdout"])
+
+            # Same guard as run_delegation_pipeline: don't silently return
+            # empty success when stdout has content.
+            if not parsed.get("result") and status.get("stdout", "").strip():
+                if status.get("returncode", 0) == 0:
+                    parsed["result"] = status["stdout"]
+                if not parsed.get("terminal_reason"):
+                    parsed["terminal_reason"] = "empty_result_fallback"
+
             subagent_mode = status.get("subagent_mode", "off")
             allowed = subagent_mode == "on"
             return {
