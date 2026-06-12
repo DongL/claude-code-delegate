@@ -8,3 +8,6 @@ logs/
 .claude-delegate/
 autoresearch-claude-code-delegate/
 docs/prd/
+AGENTS.md
+CLAUDE.md
+.claude/skills/
