@@ -2,13 +2,21 @@
 
 ## Orchestrator
 
-The entity that owns the planning and review phases of the delegation workflow. May be an AI (Codex, Claude Code, Cursor, etc.) or a human. The orchestrator produces a plan, invokes Claude Code for execution, then inspects the results.
+The entity that owns the planning and review phases of the delegation workflow. May be an AI (Codex, Claude Code, Cursor, etc.) or a human. The orchestrator produces a plan, invokes the selected executor backend for execution, then inspects the results.
 
-Not to be confused with "Executor" (Claude Code), which only implements and verifies.
+Not to be confused with "Executor" (Claude Code or OpenCode), which only implements and verifies.
 
 ## Executor
 
-Claude Code, acting on a concrete plan supplied by the Orchestrator. The Executor does not design — it reads context, implements, runs verification commands, and reports results.
+Claude Code or OpenCode, acting on a concrete plan supplied by the Orchestrator. The Executor does not design — it reads context, implements, runs verification commands, and reports results.
+
+Common pairings:
+
+| Orchestrator | Executor | How |
+|--------------|----------|-----|
+| Codex | Claude Code | Default `claude-code` backend |
+| Claude Code | OpenCode | `--opencode`, `--executor opencode`, or MCP `executor="opencode"` |
+| Any MCP/shell-capable host | Claude Code or OpenCode | Same pipeline, selected per invocation |
 
 ## Delegation
 
@@ -16,7 +24,7 @@ The act of the Orchestrator handing a bounded implementation task to the Executo
 
 ## Provider Model
 
-The model name passed to Claude Code (e.g., `deepseek-v4-pro[1m]`). This is not a standard Anthropic model ID — it reflects a custom provider (DeepSeek V4 via [`cc-switch`](https://github.com/farion1231/cc-switch)) that the target Claude Code installation is configured to use. The Orchestrator knows what model its Claude Code instance can serve. The wrapper defaults to `deepseek-v4-pro[1m]` but is overridable via `CLAUDE_DELEGATE_MODEL`.
+The model name passed to the selected executor (e.g., `deepseek-v4-pro[1m]` for Claude Code or `opencode/deepseek-v4-flash-free` for OpenCode). Claude Code model IDs may reflect a custom provider (DeepSeek V4 via [`cc-switch`](https://github.com/farion1231/cc-switch)) rather than a standard Anthropic model. OpenCode model IDs usually use provider-prefixed names. The orchestrator knows what model its selected executor can serve. The wrapper defaults to `deepseek-v4-pro[1m]` but is overridable via `CLAUDE_DELEGATE_MODEL`.
 
 ## Pro vs Flash
 
@@ -38,15 +46,15 @@ The practice of repeating correction passes until the diff is correct, rather th
 
 ## Script Resolver
 
-The `resolve_delegator` function in SKILL.md that locates the wrapper script at runtime. It checks three locations in order: `CLAUDE_DELEGATE_DIR` (explicit override), `~/.agents/skills/claude-code-delegate` (current Codex path), and `~/.codex/skills/claude-code-delegate` (legacy). This avoids requiring environment variable setup for first-time Codex users.
+The `resolve_delegator` function in SKILL.md that locates the wrapper script at runtime. It checks three locations in order: `CLAUDE_DELEGATE_DIR` (explicit override), `~/.agents/skills/claude-code-delegate` (current agent skill path), and `~/.codex/skills/claude-code-delegate` (legacy Codex path). This avoids requiring environment variable setup for first-time users.
 
 ## MCP Server
 
-The `scripts/mcp_server.py` entry point that exposes `classify_task`, `delegate_task`, `aggregate_profile`, and `format_jira_text` as MCP tools over stdio JSON-RPC transport. Allows an MCP-compatible orchestrator to discover and invoke delegation operations through typed contracts rather than shell invocation. Requires `pip install mcp`.
+The `scripts/mcp_server.py` entry point that exposes delegation, polling, classification, profile aggregation, and Jira text formatting as MCP tools over stdio JSON-RPC transport. Allows an MCP-compatible orchestrator to discover and invoke delegation operations through typed contracts rather than shell invocation. Requires `pip install mcp`.
 
 ## MCP Tool
 
-A typed JSON-RPC operation registered by the MCP server. Each tool has a name, description, and typed input schema (`inputSchema`). The four bundled tools are `classify_task` (prompt classification), `delegate_task` (full delegation pipeline with classify → envelope → invoke → compact), `aggregate_profile` (profile log analysis from CLAUDE_DELEGATE_PROFILE_LOG JSONL), and `format_jira_text` (Markdown-to-plain-text conversion via `jira-safe-text.py`).
+A typed JSON-RPC operation registered by the MCP server. Each tool has a name, description, and typed input schema (`inputSchema`). The bundled tools are `classify_task` (prompt classification), `delegate_task` (full delegation pipeline with classify → envelope → invoke → compact), `start_delegation` (async launch), `poll_delegation` (full async poll), `poll_delegation_compact` (lightweight async poll), `aggregate_profile` (profile log analysis from CLAUDE_DELEGATE_PROFILE_LOG JSONL), and `format_jira_text` (Markdown-to-plain-text conversion via `jira-safe-text.py`).
 
 ## MCP Transport
 

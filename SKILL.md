@@ -1,13 +1,13 @@
 ---
 name: claude-code-delegate
-description: Delegate an orchestrator-authored implementation plan to Claude Code, then review the resulting diff. Use when the user wants an orchestrator (e.g., Codex) to plan while Claude Code executes, or wants a plan-execute-review loop.
+description: Delegate an orchestrator-authored implementation plan to a coding executor, then review the resulting diff. Use when the user wants an orchestrator (e.g., Codex or Claude Code) to plan while Claude Code or OpenCode executes, or wants a plan-execute-review loop.
 ---
 
 # Claude Code Delegate
 
 ## Contract
 
-Use this workflow when the user wants an orchestrator to own planning/review while Claude Code performs implementation. Each delegation pass must clear every mandatory gate. If a gate does not apply, note the skip and move to the next.
+Use this workflow when the user wants an orchestrator to own planning/review while a selected executor performs implementation. Codex can orchestrate Claude Code, and Claude Code can orchestrate OpenCode by passing `--opencode` / `--executor opencode`. Each delegation pass must clear every mandatory gate. If a gate does not apply, note the skip and move to the next.
 
 ### Mandatory Gates
 
@@ -18,7 +18,7 @@ Use this workflow when the user wants an orchestrator to own planning/review whi
 - [ ] Confirm the plan does not broaden scope beyond what was asked. Scope creep is the most common violation — plan only what the user requested.
 
 #### Delegate Gate
-- [ ] Show the exact orchestrator-authored prompt to the user BEFORE invocation. This is a hard gate: the user must see what will be sent to Claude Code before execution starts. Present the prompt as a normal assistant message — not through a shell command, tool output, or hidden artifact.
+- [ ] Show the exact orchestrator-authored prompt to the user BEFORE invocation. This is a hard gate: the user must see what will be sent to the selected executor before execution starts. Present the prompt as a normal assistant message — not through a shell command, tool output, or hidden artifact.
 - [ ] If the prompt contains secrets, private user data, or excessive copied context, show a redacted version and state what was redacted. Never redact material scope, ownership boundaries, prohibited actions, or verification commands.
 - [ ] Prefer MCP transport when the `claude-code-delegate` MCP server is available (use `delegate_task` tool). Fall back to `run-claude-code.sh` via the resolver function only when MCP is not configured.
 - [ ] Default to quiet/compact mode (`--quiet`). This preserves orchestrator tokens and produces a compact final report. Streaming output is noisy, wastes context window, and should only be used for wrapper/API/permission diagnosis. Before re-streaming, check stderr heartbeat — if alive, executor is running; no need to restart.
@@ -28,9 +28,9 @@ Use this workflow when the user wants an orchestrator to own planning/review whi
 - [ ] Do not wrap the invocation in a timeout. Use --start / --poll for long-running tasks.
 
 #### Execute Gate
-- [ ] Do not make local implementation edits while Claude Code is executing.
-- [ ] If Claude Code appears stuck, re-run with `--stream` to diagnose — do not take over locally.
-- [ ] If Claude Code produces a wrong or incomplete result, stop and re-delegate the correction — do not patch locally.
+- [ ] Do not make local implementation edits while the selected executor is executing.
+- [ ] If the executor appears stuck, re-run with `--stream` to diagnose — do not take over locally.
+- [ ] If the executor produces a wrong or incomplete result, stop and re-delegate the correction — do not patch locally.
 
 #### Async Delegation Gate (Lease + Single-Flight)
 
@@ -54,14 +54,14 @@ The `--start` / `--poll` modes enforce single-flight lease semantics to prevent 
 - [ ] **STOP.** The next two gates (Review, Report) are mandatory and must not be skipped even for read-only tasks. For read-only tasks where `git diff --stat` is empty, note that explicitly.
 
 #### Review Gate
-- [ ] Show Claude Code's output to the user before giving the orchestrator's review.
+- [ ] Show the executor's output to the user before giving the orchestrator's review.
 - [ ] Run `git diff --stat` and inspect relevant diffs locally.
 - [ ] Run focused tests or verification commands.
-- [ ] Do not accept unreviewed changes just because Claude Code completed successfully.
+- [ ] Do not accept unreviewed changes just because the executor completed successfully.
 
 #### Correction Gate
 - [ ] If the diff is wrong or incomplete, show a targeted correction plan to the user.
-- [ ] Re-delegate the correction through Claude Code using the same wrapper invocation.
+- [ ] Re-delegate the correction through the selected executor using the same wrapper invocation.
 - [ ] Show the correction pass output before the next iteration or final review.
 - [ ] Surface results after each correction pass so the user can intervene if convergence stalls.
 
@@ -70,7 +70,7 @@ The `--start` / `--poll` modes enforce single-flight lease semantics to prevent 
 
 ### Local Implementation Ban
 
-While this skill is active, the orchestrator may inspect, plan, and review locally but must not make implementation edits locally. Every code change must flow through Claude Code via the wrapper. The orchestrator may only edit locally if the user explicitly authorizes a Codex takeover.
+While this skill is active, the orchestrator may inspect, plan, and review locally but must not make implementation edits locally. Every code change must flow through the selected executor via the wrapper. The orchestrator may only edit locally if the user explicitly authorizes a takeover.
 
 ## Invocation
 
@@ -134,7 +134,7 @@ Prefer MCP transport. Shell wrapper is fallback. Both use the same pipeline.
 
 ## Prompt Requirements
 
-The prompt sent to Claude Code must include:
+The prompt sent to the selected executor must include:
 
 - [ ] The user's goal.
 - [ ] The concrete plan to execute.
@@ -144,7 +144,7 @@ The prompt sent to Claude Code must include:
 - [ ] Verification commands to run.
 - [ ] A request to report changed files and command results.
 
-After Claude Code returns, show the user Claude Code's output. In quiet mode, show the compact final report. In stream mode, prefer the final result block when it is concise; if the stream output is noisy, summarize the key lines but preserve changed files, command results, errors, and any stated caveats.
+After the executor returns, show the user the executor's output. In quiet mode, show the compact final report. In stream mode, prefer the final result block when it is concise; if the stream output is noisy, summarize the key lines but preserve changed files, command results, errors, and any stated caveats.
 
 ## Issue Tracker Integration
 
@@ -163,8 +163,7 @@ Guidelines for minimizing token waste during delegation loops:
 ## Known Failure Modes
 
 - **Apparent hang**: `claude -p` with default permissions blocks on permission prompts. The wrapper defaults to `bypassPermissions` to avoid this. Use `--interactive` (acceptEdits) to observe tool commands before they run.
-- **Silent executor**: During long delegations, the pipeline prints a heartbeat to stderr every 30s. If Claude Code appears silent, check stderr first — an active heartbeat means it's running. Set `CLAUDE_DELEGATE_HEARTBEAT_SECONDS=0` to disable (e.g., CI).
-- **Async quiet mode**: In async `--quiet` mode (`--output-format json`), Claude Code emits stdout only on completion. The poll response shows `stdout_bytes=0` and `stderr_bytes=0` while the job is running — this is expected. Use `elapsed_seconds` and `child_pid_alive` in the poll response to confirm liveness. For stderr progress, set `CLAUDE_DELEGATE_HEARTBEAT_SECONDS` to a positive value; the async supervisor writes heartbeat lines to `stderr.txt` which are visible via poll tail.
-- **Premature kill/retry**: The orchestrator may assume Claude Code is stuck and start a reduced correction plan. `--start` / `--poll` prevents this via single-flight lease. Poll with `--poll <job_id>` rather than restarting.
+- **Silent executor**: During long delegations, the pipeline prints a heartbeat to stderr every 30s. If the executor appears silent, check stderr first — an active heartbeat means it's running. Set `CLAUDE_DELEGATE_HEARTBEAT_SECONDS=0` to disable (e.g., CI).
+- **Async quiet mode**: In async `--quiet` mode, the executor may emit stdout only on completion. The poll response can show `stdout_bytes=0` and `stderr_bytes=0` while the job is running — this is expected. Use `elapsed_seconds` and `child_pid_alive` in the poll response to confirm liveness. For stderr progress, set `CLAUDE_DELEGATE_HEARTBEAT_SECONDS` to a positive value; the async supervisor writes heartbeat lines to `stderr.txt` which are visible via poll tail.
+- **Premature kill/retry**: The orchestrator may assume the executor is stuck and start a reduced correction plan. `--start` / `--poll` prevents this via single-flight lease. Poll with `--poll <job_id>` rather than restarting.
 - **Provider/auth errors**: Usually means the provider can't serve the model, or the token is expired. Confirm `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and model values without printing secrets.
-

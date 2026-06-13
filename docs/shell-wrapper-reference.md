@@ -14,6 +14,7 @@
 | `--full-context` | `CLAUDE_DELEGATE_CONTEXT_MODE` | Prompt adaptation (`auto`: template envelope, `full`: raw prompt) |
 | `--allow-subagents` | `CLAUDE_DELEGATE_SUBAGENTS` | Subagent control (`on`/`off`, default `off`) |
 | `--opencode` | `CLAUDE_DELEGATE_EXECUTOR` | Shorthand for `--executor opencode` |
+| `--executor NAME` | `CLAUDE_DELEGATE_EXECUTOR` | Executor backend (`claude-code` default, or `opencode`) |
 | `--start` | — | Launch delegation in background, return job_id JSON (async mode). |
 | `--poll JOB_ID` | — | Poll async job status, return structured JSON. |
 | `--health` | — | Run health checks (python3, claude, core scripts, runtime, mcp) and exit. Exit 0 = HEALTHY, 1 = UNHEALTHY. |
@@ -28,7 +29,25 @@
 
 ## Delegation Suitability
 
-Do not delegate tiny local inspection tasks unless the user explicitly asks to use Claude Code. If the task is read-only, deterministic, local to the current machine, and likely needs three or fewer shell commands, the orchestrator should run it directly and report the result. Delegation has leverage for implementation, multi-file edits, independent execution, Jira/MCP work, or tasks where Claude Code is specifically requested.
+Do not delegate tiny local inspection tasks unless the user explicitly asks to use a coding executor. If the task is read-only, deterministic, local to the current machine, and likely needs three or fewer shell commands, the orchestrator should run it directly and report the result. Delegation has leverage for implementation, multi-file edits, independent execution, Jira/MCP work, or tasks where Claude Code/OpenCode is specifically requested.
+
+## Executor Backend
+
+Claude Code is the default executor. OpenCode can be selected per invocation without changing the surrounding orchestration flow:
+
+```bash
+"$(resolve_delegator)" --opencode --flash "$PROMPT"
+"$(resolve_delegator)" --executor opencode --qwen "$PROMPT"
+```
+
+The same selection is available through the environment:
+
+```bash
+CLAUDE_DELEGATE_EXECUTOR=opencode \
+  "$(resolve_delegator)" --flash "$PROMPT"
+```
+
+This is the intended path when Claude Code is acting as the orchestrator and OpenCode is the implementation executor.
 
 ## Model
 
@@ -56,9 +75,9 @@ CLAUDE_DELEGATE_MODEL='deepseek-v4-flash[1m]' \
 
 ## Output Mode
 
-Default output mode is `quiet`: the pipeline asks Claude Code for final JSON output, parses it internally via `compact-claude-stream.py`, and returns only the final result plus model, permission mode, usage, cost, and terminal status. This is the preferred mode for normal delegation because the orchestrator does not need to ingest every thinking or partial-message event.
+Default output mode is `quiet`: the pipeline asks the selected executor for machine-readable output, parses it internally via `compact-claude-stream.py`, and returns only the final result plus model, permission mode, usage, cost, and terminal status. This is the preferred mode for normal delegation because the orchestrator does not need to ingest every thinking or partial-message event.
 
-Use `--stream` only when debugging Claude Code itself, diagnosing permission hangs, inspecting tool events, or preserving the raw stream is necessary:
+Use `--stream` only when debugging the executor itself, diagnosing permission hangs, inspecting tool events, or preserving the raw stream is necessary:
 
 ```bash
 # Compact output, default:
@@ -115,7 +134,7 @@ The compact output reports the selected class, task type, context budget, prompt
 
 ## Subagents and Heartbeat
 
-Default delegation disables Claude Code's built-in `Task`/`Agent` subagent tool. This keeps the executor from spawning another local agent that can run for a long time while quiet mode buffers all output. Allow subagents only when the plan explicitly needs Claude Code to parallelize inside its own process:
+Default delegation disables Claude Code's built-in `Task`/`Agent` subagent tool. For OpenCode, default delegation does not pass an `--agent` flag; `--allow-subagents` adds `--agent build`. This keeps the executor from spawning another local agent unless the plan explicitly needs parallelization:
 
 ```bash
 "$(resolve_delegator)" --allow-subagents "$PROMPT"
@@ -125,7 +144,7 @@ Quiet mode prints progress to stderr immediately and every 30 seconds while Clau
 
 ## MCP Mode
 
-Default MCP mode is `all`: Claude Code uses its normal project/user MCP configuration. Use selective MCP loading when a task only needs one server, or when unrelated MCP servers slow startup and inflate context.
+Default MCP mode is `all`: Claude Code uses its normal project/user MCP configuration. OpenCode does not consume these Claude Code MCP flags; configure OpenCode tools through its own config files. Use selective MCP loading with the Claude Code backend when a task only needs one server, or when unrelated MCP servers slow startup and inflate context.
 
 ```bash
 # Default: use normal Claude Code MCP discovery
@@ -142,7 +161,7 @@ Default MCP mode is `all`: Claude Code uses its normal project/user MCP configur
 
 Supported modes are `all`, `none`, `jira`, `linear`, and `sequential-thinking`. `none` uses Claude Code's `--strict-mcp-config --mcp-config` with an empty MCP config. Specific server modes use `--strict-mcp-config --mcp-config` with a generated one-server config. When `CLAUDE_DELEGATE_MCP_CONFIG_PATH` is set, that file is used. Otherwise, the wrapper searches `~/.claude/mcp.json`, `~/.codex/mcp.json`, `.mcp.json`, and the skill directory `.mcp.json`, then picks the first config containing the requested server.
 
-Built-in Claude Code file and shell tools are not MCP servers, so `--mcp none` still allows normal implementation work. It only suppresses project/user MCP server loading.
+Built-in Claude Code file and shell tools are not MCP servers, so `--mcp none` still allows normal implementation work for the Claude Code backend. It only suppresses project/user MCP server loading.
 
 Environment variable override:
 
@@ -217,7 +236,7 @@ CLAUDE_DELEGATE_PROFILE_LOG=logs/delegation-profile.jsonl \
 
 ## Context Envelope and Templates
 
-For known task types, the wrapper wraps the full original prompt in a task-specific envelope before calling Claude Code. Current templates cover:
+For known task types, the wrapper wraps the full original prompt in a task-specific envelope before calling the selected executor. Current templates cover:
 
 - `read_only_scan`
 - `code_edit`
@@ -228,4 +247,4 @@ Each template preserves the full original request, task goal, allowed scope, con
 
 ## Profiling
 
-Quiet output includes model, effort, permission mode, MCP mode, subagent mode and observed count, class, task type, context budget, prompt template, prompt character counts, usage tokens, cache-read tokens, cache-hit ratio when available, cost, and terminal reason. Note: in quiet JSON mode the internal subagent count is reported as "unknown" because Claude Code does not emit tool-use stream events there. Prompt reduction is expected to be zero for normal templated prompts because the original request is preserved. Set `CLAUDE_DELEGATE_PROFILE_LOG` to append the same non-secret metadata to JSONL for trend analysis. The bundled `scripts/aggregate-profile-log.py` reads these JSONL records and outputs a concise aggregate summary (plain text by default, `--json` for machine-readable).
+Quiet output includes model, effort, permission mode, MCP mode, executor, subagent mode and observed count, class, task type, context budget, prompt template, prompt character counts, usage tokens, cache-read tokens, cache-hit ratio when available, cost, and terminal reason. Note: in quiet JSON mode the internal subagent count may be reported as "unknown" because executor output does not always include tool-use stream events. Prompt reduction is expected to be zero for normal templated prompts because the original request is preserved. Set `CLAUDE_DELEGATE_PROFILE_LOG` to append the same non-secret metadata to JSONL for trend analysis. The bundled `scripts/aggregate-profile-log.py` reads these JSONL records and outputs a concise aggregate summary (plain text by default, `--json` for machine-readable).

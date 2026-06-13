@@ -47,7 +47,7 @@
   <rect x="40" y="44" width="680" height="28" fill="#ff2d78" rx="6"/>
   <rect x="40" y="58" width="680" height="14" fill="#ff2d78"/>
   <text x="380" y="63" text-anchor="middle" font-size="14" font-weight="700" fill="#0a0a1a">Orchestrator</text>
-  <text x="380" y="80" text-anchor="middle" font-size="12" font-weight="600" fill="#ffb3cc">Codex / Cursor / Human</text>
+  <text x="380" y="80" text-anchor="middle" font-size="12" font-weight="600" fill="#ffb3cc">Codex / Claude Code / Cursor / Human</text>
   <text x="60" y="102" font-size="12" font-weight="500" fill="#c0c0dd">• Reads project context and authors a concrete implementation plan</text>
   <text x="60" y="120" font-size="12" font-weight="500" fill="#c0c0dd">• Reviews diff and test output, decides: accept / reject / request correction</text>
   <text x="60" y="138" font-size="12" font-weight="500" fill="#c0c0dd">• Delivers final summary to the user</text>
@@ -66,7 +66,7 @@
   <text x="60" y="250" font-size="12" font-weight="500" fill="#c0c0dd">• SKILL.md — contract defining the delegation loop and orchestrator responsibilities</text>
   <text x="60" y="268" font-size="12" font-weight="500" fill="#c0c0dd">• Wrapper — standardizes model, effort, permission, MCP, and output format</text>
   <text x="60" y="286" font-size="12" font-weight="500" fill="#c0c0dd">• Adapter — classifies task size/type, selects prompt template, routes to executor</text>
-  <text x="60" y="304" font-size="12" font-weight="500" fill="#c0c0dd">• Compactor — reduces raw JSON stream to concise changed-files + test-results report</text>
+  <text x="60" y="304" font-size="12" font-weight="500" fill="#c0c0dd">• Compactor — reduces executor output to concise changed-files + test-results report</text>
 
   <!-- Arrow -->
   <line x1="380" y1="322" x2="380" y2="348" stroke="#c0c0dd" stroke-width="1.5" marker-end="url(#arrow-down)"/>
@@ -77,7 +77,7 @@
   <rect x="40" y="356" width="680" height="102" fill="none" stroke="#ff8c00" stroke-width="0.6" rx="6" opacity="0.3" filter="url(#neon-amber)"/>
   <rect x="40" y="356" width="680" height="28" fill="#ff8c00" rx="6"/>
   <rect x="40" y="370" width="680" height="14" fill="#ff8c00"/>
-  <text x="380" y="375" text-anchor="middle" font-size="14" font-weight="700" fill="#0a0a1a">Claude Code Execution Runtime</text>
+  <text x="380" y="375" text-anchor="middle" font-size="14" font-weight="700" fill="#0a0a1a">Executor Runtime</text>
   <text x="380" y="392" text-anchor="middle" font-size="12" font-weight="600" fill="#ffcc80">DeepSeek V4 model backend</text>
   <text x="60" y="414" font-size="12" font-weight="500" fill="#c0c0dd">• Edits files according to the orchestrator's plan</text>
   <text x="60" y="432" font-size="12" font-weight="500" fill="#c0c0dd">• Runs commands and verification tests</text>

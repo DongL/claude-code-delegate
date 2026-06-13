@@ -48,7 +48,7 @@ def delegate_task(
     output_mode: str = "quiet",
     executor: str = "claude-code",
 ) -> dict[str, Any]:
-    """Delegate a task to Claude Code for execution."""
+    """Delegate a task to the selected executor for execution."""
     import importlib
 
     # Reload pipeline and its key deps to pick up code changes without

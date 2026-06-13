@@ -1,16 +1,18 @@
 # Claude Code Delegate
 
-> Let your AI orchestrator (Codex, Cursor, etc.) delegate implementation tasks to Claude Code or OpenCode — with DeepSeek V4 as the low-cost model backend.
+> Let your AI orchestrator (Codex, Claude Code, Cursor, etc.) delegate implementation tasks to Claude Code or OpenCode — with DeepSeek V4 as the low-cost model backend.
 
 <details open>
 <summary><b>English</b></summary>
 
 An orchestrator owns planning and review. This toolkit handles everything in between: classify the task, wrap it in a prompt template, invoke the selected executor (Claude Code or OpenCode), compact the output, and return a structured result. Neither the wrapper nor the pipeline approves changes — that's the orchestrator's job.
 
+Supported pairings include Codex orchestrating Claude Code, Claude Code orchestrating OpenCode, and any MCP/shell-capable orchestrator using either executor backend.
+
 ```mermaid
 flowchart LR
     subgraph Orchestrator["Orchestrator"]
-        Codex["Codex / GPT<br/>(plans + reviews)"]
+        Codex["Codex / Claude Code / GPT<br/>(plans + reviews)"]
     end
 
     subgraph Entry["Entry Points"]
@@ -59,7 +61,7 @@ flowchart LR
     CT -->|result + cost| Codex
 ```
 
-The diagram spans five areas. **Orchestrator** — Codex/GPT plans and reviews; Claude Code/OpenCode executes. **Entry Points** — MCP transport (JSON-RPC over stdio, preferred) and shell wrapper (fallback). **Pipeline** — five stages: classify (model + effort), envelope (prompt template), invoke (Claude Code or OpenCode), compact (structured result), profile (JSONL log). **Executor Backends** — Claude Code CLI and OpenCode CLI. **Model Providers** — DeepSeek V4 Pro and Flash primary; Qwen as OpenCode fallback.
+The diagram spans five areas. **Orchestrator** — Codex, Claude Code, GPT, or another host plans and reviews; Claude Code/OpenCode executes. **Entry Points** — MCP transport (JSON-RPC over stdio, preferred) and shell wrapper (fallback). **Pipeline** — five stages: classify (model + effort), envelope (prompt template), invoke (Claude Code or OpenCode), compact (structured result), profile (JSONL log). **Executor Backends** — Claude Code CLI and OpenCode CLI. **Model Providers** — DeepSeek V4 Pro and Flash primary; Qwen as OpenCode fallback.
 
 ## What This Is / Is Not
 
@@ -103,9 +105,9 @@ Or update manually:
 git -C ~/.claude-code-delegate pull --ff-only
 ```
 
-### As a Codex skill
+### As an orchestrator skill
 
-Symlink into the skill directory so Codex discovers `SKILL.md`:
+Symlink into the skill directory so Codex, Claude Code, or another skill-aware orchestrator discovers `SKILL.md`:
 
 ```bash
 mkdir -p ~/.agents/skills
@@ -115,7 +117,7 @@ ln -sfn "$PWD" ~/.agents/skills/claude-code-delegate
 The resolver in `SKILL.md` finds the wrapper across these paths:
 
 1. `$CLAUDE_DELEGATE_DIR` — explicit override
-2. `$HOME/.agents/skills/claude-code-delegate` — current Codex path
+2. `$HOME/.agents/skills/claude-code-delegate` — current agent skill path
 3. `$HOME/.codex/skills/claude-code-delegate` — legacy Codex path
 
 ### Verify
@@ -174,14 +176,16 @@ Add to your project's `.mcp.json`:
 }
 ```
 
-Your orchestrator discovers six tools via `tools/list` and delegates with one typed call:
+Your orchestrator discovers seven tools via `tools/list` and delegates with one typed call:
 
 ```
 delegate_task(prompt="fix the type error in src/cli.py")
 // → { classification, result, usage, cost_usd, terminal_reason }
 ```
 
-Also available: `classify_task`, `aggregate_profile`, `format_jira_text`, `start_delegation`, `poll_delegation`. Requires `pip install mcp`.
+To use Claude Code as the orchestrator and OpenCode as the executor, pass `executor="opencode"` through MCP or use `--opencode` / `--executor opencode` with the shell wrapper.
+
+Also available: `classify_task`, `aggregate_profile`, `format_jira_text`, `start_delegation`, `poll_delegation`, and `poll_delegation_compact`. Requires `pip install mcp`.
 
 ### Shell wrapper (fallback)
 
@@ -269,9 +273,9 @@ A running job holds an execution lease. `--start` refuses to launch a second del
 ## The Delegation Loop
 
 1. **Plan** — The orchestrator reads project context and produces a concrete plan with ownership boundaries and verification commands.
-2. **Delegate** — The pipeline classifies the task, wraps it in a prompt template, resolves model/effort/permission settings, invokes Claude Code, and compacts the output.
+2. **Delegate** — The pipeline classifies the task, wraps it in a prompt template, resolves model/effort/permission settings, invokes the selected executor, and compacts the output.
 3. **Execute** — The executor (Claude Code or OpenCode) implements the plan using the configured model backend.
-4. **Compact** — The pipeline parses Claude Code's JSON output into a concise report: result text, token usage, cost, and terminal status.
+4. **Compact** — The pipeline parses the executor's output into a concise report: result text, token usage, cost, and terminal status.
 5. **Review** — The orchestrator inspects `git diff`, test output, and the compact report, then decides to accept, reject, or request a correction pass.
 6. **Report** — The orchestrator gives a final summary: what changed, which tests ran, residual risk.
 
@@ -285,7 +289,7 @@ Correction iterations repeat steps 2–5 until the diff is correct.
 
 **Auditability.** Every delegation produces a diff, a compact report with token usage and cost, and an append-only profile log. Nothing is accepted silently. Correction passes show exactly what changed between iterations.
 
-**Model specialization.** Planning calls for broad context and high-level reasoning. Execution calls for precision and speed. No single model is best at both. Delegation lets you pair a strong planning model (Codex, Opus) with a fast execution model (DeepSeek V4 Flash, Haiku) — $0.28/delegation vs. $3–$5 on premium-tier models.
+**Model specialization.** Planning calls for broad context and high-level reasoning. Execution calls for precision and speed. No single model is best at both. Delegation lets you pair a strong planning model or agent (Codex, Claude Code, Opus) with a fast execution backend (Claude Code or OpenCode using DeepSeek V4 Flash, Qwen, Haiku, or another configured model) — $0.28/delegation vs. $3–$5 on premium-tier models.
 
 **Safety boundary.** The execution plan defines which files may be touched and which commands may run. Subagents are disabled by default for Claude Code (via `--disallowedTools Task Agent`). For OpenCode, the default takes no action (OpenCode's default allows subagents); passing `--allow-subagents` adds `--agent build` to explicitly enable subagents. A heartbeat confirms the executor is still alive during long tasks. The executor cannot silently refactor the codebase or revert unrelated changes.
 
@@ -299,7 +303,7 @@ Use `claude -p` for quick one-off answers. Use the delegation layer when you wan
 
 ## Cost & Context Efficiency
 
-The delegation pipeline converts Claude Code's raw JSON stream into a compact report — the orchestrator sees a structured summary (classification, result text, token usage, cost), not megabytes of execution logs. This saves context window in every delegation.
+The delegation pipeline converts executor output into a compact report — the orchestrator sees a structured summary (classification, result text, token usage, cost), not megabytes of execution logs. This saves context window in every delegation.
 
 Prompt caching amplifies the savings. Repeated delegation cycles reuse cached system prompts, instruction templates, and prior context across invocations. In one optimization run of two passes:
 
@@ -485,10 +489,10 @@ Each record: model, effort, task type, token usage, cache hit ratio, cost, promp
 
 ## Requirements
 
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) (default executor)
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) (orchestrator or default executor)
 - [OpenCode](https://github.com/opencode-ai/opencode) (alternative executor, via `--opencode` or `--executor opencode`)
 - `python3` (standard library only; `pip install mcp` optional for MCP server)
-- Access to a Claude Code-compatible model
+- Access to a model/provider supported by the selected executor
 
 ## License
 
@@ -499,12 +503,14 @@ MIT
 <details>
 <summary><b>中文</b></summary>
 
-编排器负责规划和审查。本工具处理中间所有环节：分类任务、包装 prompt 模板、调用 Claude Code、压缩输出、返回结构化结果。wrapper 和 pipeline 均不批准变更 —— 这是编排器的职责。
+编排器负责规划和审查。本工具处理中间所有环节：分类任务、包装 prompt 模板、调用所选执行器（Claude Code 或 OpenCode）、压缩输出、返回结构化结果。wrapper 和 pipeline 均不批准变更 —— 这是编排器的职责。
+
+支持的组合包括：Codex 编排 Claude Code、Claude Code 编排 OpenCode，以及任何支持 MCP 或 shell 的编排器调用任一执行器后端。
 
 ```mermaid
 flowchart LR
     subgraph Orchestrator["Orchestrator"]
-        Codex["Codex / GPT<br/>(plans + reviews)"]
+        Codex["Codex / Claude Code / GPT<br/>(plans + reviews)"]
     end
 
     subgraph Entry["Entry Points"]
@@ -553,7 +559,7 @@ flowchart LR
     CT -->|result + cost| Codex
 ```
 
-该图涵盖五部分。**编排器** — Codex/GPT 负责规划和审查；Claude Code/OpenCode 执行。**入口** — MCP 传输（stdio JSON-RPC，推荐）和 shell wrapper（后备）。**流水线** — 五阶段：分类（model + effort）、包装（prompt 模板）、调用（Claude Code 或 OpenCode）、压缩（结构化结果）、画像（JSONL 日志）。**执行器后端** — Claude Code CLI 和 OpenCode CLI。**模型提供商** — DeepSeek V4 Pro 和 Flash 为主力；Qwen 作为 OpenCode 后备。
+该图涵盖五部分。**编排器** — Codex、Claude Code、GPT 或其他宿主负责规划和审查；Claude Code/OpenCode 执行。**入口** — MCP 传输（stdio JSON-RPC，推荐）和 shell wrapper（后备）。**流水线** — 五阶段：分类（model + effort）、包装（prompt 模板）、调用（Claude Code 或 OpenCode）、压缩（结构化结果）、画像（JSONL 日志）。**执行器后端** — Claude Code CLI 和 OpenCode CLI。**模型提供商** — DeepSeek V4 Pro 和 Flash 为主力；Qwen 作为 OpenCode 后备。
 
 ## 这是什么 / 不是什么
 
@@ -597,9 +603,9 @@ curl -fsSL https://raw.githubusercontent.com/DongL/claude-code-delegate/main/ins
 git -C ~/.claude-code-delegate pull --ff-only
 ```
 
-### 作为 Codex skill
+### 作为编排器 skill
 
-创建符号链接到 skill 目录，让 Codex 发现 `SKILL.md`：
+创建符号链接到 skill 目录，让 Codex、Claude Code 或其他支持 skill 的编排器发现 `SKILL.md`：
 
 ```bash
 mkdir -p ~/.agents/skills
@@ -609,7 +615,7 @@ ln -sfn "$PWD" ~/.agents/skills/claude-code-delegate
 `SKILL.md` 中的解析器按以下路径查找 wrapper：
 
 1. `$CLAUDE_DELEGATE_DIR` —— 显式覆盖
-2. `$HOME/.agents/skills/claude-code-delegate` —— 当前 Codex 路径
+2. `$HOME/.agents/skills/claude-code-delegate` —— 当前 agent skill 路径
 3. `$HOME/.codex/skills/claude-code-delegate` —— 旧版 Codex 路径
 
 ### 验证
@@ -643,6 +649,14 @@ claude -p "hello" --model deepseek-v4-flash[1m]
 
 或者使用 [cc-switch](https://github.com/farion1231/cc-switch) 进行 GUI 方式的 provider 管理，内置 50+ 预设。
 
+### OpenCode（替代执行器）
+
+设置 `CLAUDE_DELEGATE_EXECUTOR=opencode` 即可使用 OpenCode 而不是 Claude Code。OpenCode 会读取自己的配置：`~/.config/opencode/config.json` 和 `./opencode.json[c]`。不需要 Anthropic API key。
+
+```bash
+export CLAUDE_DELEGATE_EXECUTOR=opencode
+```
+
 ## 编排器如何调用
 
 ### MCP 传输（推荐）
@@ -660,14 +674,16 @@ claude -p "hello" --model deepseek-v4-flash[1m]
 }
 ```
 
-编排器通过 `tools/list` 发现六个工具，一次类型化调用即可委派：
+编排器通过 `tools/list` 发现七个工具，一次类型化调用即可委派：
 
 ```
 delegate_task(prompt="修复 src/cli.py 中的类型错误")
 // → { classification, result, usage, cost_usd, terminal_reason }
 ```
 
-还提供：`classify_task`、`aggregate_profile`、`format_jira_text`、`start_delegation`、`poll_delegation`。需要 `pip install mcp`。
+如果要让 Claude Code 作为编排器、OpenCode 作为执行器，可以通过 MCP 传入 `executor="opencode"`，或在 shell wrapper 中使用 `--opencode` / `--executor opencode`。
+
+还提供：`classify_task`、`aggregate_profile`、`format_jira_text`、`start_delegation`、`poll_delegation`、`poll_delegation_compact`。需要 `pip install mcp`。
 
 ### Shell wrapper（后备）
 
@@ -741,9 +757,9 @@ delegate this --allow-subagents: add tests for all three API endpoints
 ## 委派循环
 
 1. **Plan** —— 编排器读取项目上下文，生成包含所有权边界和验证命令的具体计划。
-2. **Delegate** —— pipeline 分类任务、包装 prompt 模板、解析 model/effort/permission 设置、调用 Claude Code、压缩输出。
-3. **Execute** —— Claude Code 使用配置的模型后端（默认 DeepSeek V4）执行计划。
-4. **Compact** —— pipeline 将 Claude Code 的 JSON 输出解析为简洁报告：结果文本、token 用量、成本、终止状态。
+2. **Delegate** —— pipeline 分类任务、包装 prompt 模板、解析 model/effort/permission 设置、调用所选执行器、压缩输出。
+3. **Execute** —— 执行器（Claude Code 或 OpenCode）使用配置的模型后端执行计划。
+4. **Compact** —— pipeline 将执行器输出解析为简洁报告：结果文本、token 用量、成本、终止状态。
 5. **Review** —— 编排器检查 `git diff`、测试输出和报告，决定接受、拒绝或要求修正。
 6. **Report** —— 编排器给出最终摘要：变更内容、测试结果、剩余风险。
 
@@ -757,11 +773,13 @@ delegate this --allow-subagents: add tests for all three API endpoints
 
 **可审计性。** 每次委派生成 diff、token 用量和成本的简洁报告，以及追加式画像日志。没有任何东西被静默接受。修正过程显示每次迭代之间的确切变更。
 
-**模型专业化。** 规划需要广泛上下文和高层次推理。执行需要精确和速度。没有哪个模型两者都擅长。委派让你将强规划模型（Codex、Opus）与快速执行模型（DeepSeek V4 Flash、Haiku）配对——每次委派约 $0.28，而 premium 级模型需 $3–$5。
+**模型专业化。** 规划需要广泛上下文和高层次推理。执行需要精确和速度。没有哪个模型两者都擅长。委派让你将强规划模型或 agent（Codex、Claude Code、Opus）与快速执行后端（Claude Code 或 OpenCode，使用 DeepSeek V4 Flash、Qwen、Haiku 或其他已配置模型）配对——每次委派约 $0.28，而 premium 级模型需 $3–$5。
 
 **安全边界。** 执行计划定义哪些文件可以接触，哪些命令可以运行。subagent 默认禁用（Claude Code 通过 `--disallowedTools Task Agent`，OpenCode 通过不传递 `--agent` 标志）。使用 `--allow-subagents` 启用。心跳确认执行器在长任务期间仍在运行。执行器不能静默重构代码库或还原无关变更。
 
 **一致调用。** model、effort、permissions 和 MCP config 在每次委派中完全一致——不会出现任务间标志漂移。画像元数据随时间积累，用于趋势分析。
+
+**执行器灵活性。** Claude Code 和 OpenCode 共享同一条 pipeline（分类、包装、压缩、画像）。通过 `--executor` 或 `CLAUDE_DELEGATE_EXECUTOR` 切换，无需改变编排器集成。Claude Code 适合需要 Anthropic 兼容模型和 effort/推理预算控制的任务；OpenCode 适合无需 Anthropic API key 的开源模型（DeepSeek、Qwen）工作流。
 
 **渐进式信任。** 从 `--interactive` 开始，审查每个工具命令。一旦信任输出质量，过渡到 `--bypass`。同一流水线——只有权限模式改变。
 
@@ -769,7 +787,7 @@ delegate this --allow-subagents: add tests for all three API endpoints
 
 ## 成本与上下文效率
 
-委派流水线将 Claude Code 的原始 JSON 流转换为简洁报告——编排器看到的是结构化摘要（分类、结果文本、token 用量、成本），而非兆字节的执行日志。这节省了每次委派的上下文窗口。
+委派流水线将执行器输出转换为简洁报告——编排器看到的是结构化摘要（分类、结果文本、token 用量、成本），而非兆字节的执行日志。这节省了每次委派的上下文窗口。
 
 提示缓存放大了这一节约效果。重复的委派循环复用缓存的系统提示、指令模板和先前上下文。一次优化运行（两轮）的数据：
 
@@ -865,9 +883,10 @@ python3 scripts/aggregate_profile_log.py logs/profile.jsonl
 
 ## 依赖
 
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview)
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview)（编排器或默认执行器）
+- [OpenCode](https://github.com/opencode-ai/opencode)（替代执行器，通过 `--opencode` 或 `--executor opencode`）
 - `python3`（仅标准库；`pip install mcp` 可选，用于 MCP server）
-- 可访问的 Claude Code 兼容模型
+- 所选执行器支持的模型/provider
 
 ## 许可证
 

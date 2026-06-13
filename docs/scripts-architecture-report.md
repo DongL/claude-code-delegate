@@ -17,7 +17,7 @@ The `scripts/` directory contains 25 files (20 `.py`, 4 `.sh`, 1 `.js`) that imp
 ```mermaid
 flowchart TB
     subgraph User["Orchestrator / User"]
-        CODEX["Codex / GPT"]
+        CODEX["Codex / Claude Code / GPT"]
     end
 
     subgraph Entry["Entry Points"]
@@ -114,7 +114,7 @@ Every file in `scripts/` with its role, caller, and connections.
 | 1 | `pipeline.py` | .py | **Orchestrator** — 5-stage delegation pipeline (classify, envelope, invoke, compact, profile). Also provides `start_delegation_async` (lease-guarded launch) and `poll_delegation_status`. | `mcp_server.py` (runtime), `run-pipeline.py` (CLI) | `classifier`, `invoker`, `job_manager`, `logger`, `profile_logger`, `compact_claude_stream` |
 | 2 | `run-pipeline.py` | .py | **CLI dispatch** — parses argv into exec/start/poll/supervise modes, calls pipeline, prints compact report | `run-claude-code.sh` (shell wrapper) | `pipeline` (exec/start/poll), `invoker` (supervise) |
 | 3 | `run-claude-code.sh` | .sh | **Shell wrapper** — bash flag parser (--pro/--flash/--opencode/--effort/--mcp etc.). Validates flags, then exec's `run-pipeline.py` | Orchestrator (human or Codex) | `run-pipeline.py`, `health-check.py` (--health) |
-| 4 | `mcp_server.py` | .py | **MCP server** — FastMCP stdio JSON-RPC. Exposes 4 tools: `classify_task`, `delegate_task`, `aggregate_profile`, `format_jira_text`. Hot-reloads pipeline modules on each call. | MCP host (orchestrator) via `.mcp.json` | `pipeline`, `classifier`, `aggregate_profile_log`, `jira_safe_text` |
+| 4 | `mcp_server.py` | .py | **MCP server** — FastMCP stdio JSON-RPC. Exposes delegation, async polling, classification, profile aggregation, and Jira text formatting tools. Hot-reloads pipeline modules on each call. | MCP host (orchestrator) via `.mcp.json` | `pipeline`, `classifier`, `aggregate_profile_log`, `jira_safe_text` |
 | 5 | `classifier.py` | .py | **Classifier + Envelope builder** — keyword-matches prompt to task type (jira_operation, code_edit, architecture_review, read_only_scan, unknown). Returns `Classification` dataclass + builds prepared prompt with Karpathy guidelines. | `pipeline.py`, `mcp_server.py` | *stdlib only* |
 | 6 | `invoker.py` | .py | **Claude Code invoker** — builds `claude -p` subprocess with flags (model, effort, permission, MCP, output format). Manages child env, isolated Claude config, temp MCP config files. Provides `invoke_claude`, `launch_claude_async`, `supervise_job`. | `pipeline.py` | `logger`, `heartbeat`, `opencode_invoker` (delegates if executor=opencode), `job_manager` |
 | 7 | `opencode_invoker.py` | .py | **OpenCode invoker** — builds `opencode run` subprocess with model mapping from Claude Code IDs to OpenCode provider/model format. Manages MCP env via `OPENCODE_CONFIG_CONTENT`. | `invoker.py` (routed from `invoke_claude`) | `logger`, `heartbeat`, `invoker` (resolve MCP path) |
@@ -154,6 +154,7 @@ Orchestrator → mcp_server.py::delegate_task()
                     → invoker.invoke_claude(config)
                         → invoker._invoke_claude_code() or _invoke_opencode()
                             → subprocess.Popen(["claude", "-p", ..., prompt])
+                              OR subprocess.Popen(["opencode", "run", ..., prompt])
                             → heartbeat.start_heartbeat()  (stderr every 30s)
                             → process.wait()
                         → (CompletedProcess with stdout/stderr)
@@ -170,7 +171,7 @@ Orchestrator → mcp_server.py::delegate_task()
 ### Flow B: Synchronous Delegation (Shell Wrapper)
 
 ```
-Human/CI → run-claude-code.sh [--pro|--flash|--qwen] [--opencode] "prompt"
+Orchestrator/Human/CI → run-claude-code.sh [--pro|--flash|--qwen] [--opencode] "prompt"
             (flag parsing only, then exec)
             → exec python3 run-pipeline.py "prompt" <output_mode> <model_tier> ...
                 → pipeline.run_delegation_pipeline(...)
@@ -182,7 +183,7 @@ Human/CI → run-claude-code.sh [--pro|--flash|--qwen] [--opencode] "prompt"
 ### Flow C: Async Delegation (--start / --poll)
 
 ```
-Operator → run-claude-code.sh --start "prompt"
+Operator/Orchestrator → run-claude-code.sh --start "prompt"
             → run-pipeline.py --start "prompt" ...
                 → pipeline.start_delegation_async(...)
                     → find_active_lease() → refuses if another job running
@@ -192,7 +193,7 @@ Operator → run-claude-code.sh --start "prompt"
                     → create_job_meta() with supervisor PID
                     → returns {status: "running", job_id, pid}
 
-Operator → run-claude-code.sh --poll <job_id>
+Operator/Orchestrator → run-claude-code.sh --poll <job_id>
             → run-pipeline.py --poll <job_id>
                 → pipeline.poll_delegation_status(job_id)
                     → read_job_meta + read_job_result
