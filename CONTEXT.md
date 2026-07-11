@@ -54,7 +54,13 @@ The `scripts/mcp_server.py` entry point that exposes delegation, polling, classi
 
 ## MCP Tool
 
-A typed JSON-RPC operation registered by the MCP server. Each tool has a name, description, and typed input schema (`inputSchema`). The bundled tools are `classify_task` (prompt classification), `delegate_task` (full delegation pipeline with classify → envelope → invoke → compact), `start_delegation` (async launch), `poll_delegation` (full async poll), `poll_delegation_compact` (lightweight async poll), `aggregate_profile` (profile log analysis from CLAUDE_DELEGATE_PROFILE_LOG JSONL), and `format_jira_text` (Markdown-to-plain-text conversion via `jira-safe-text.py`).
+A typed JSON-RPC operation registered by the MCP server. Each tool has a name, description, and typed input schema (`inputSchema`). The bundled tools are `classify_task` (prompt classification), `delegate_task` (full delegation pipeline with classify → envelope → invoke → compact), `start_delegation` (async launch), `poll_delegation` (full async poll), `poll_delegation_compact` (lightweight async poll), `aggregate_profile` (profile log analysis from CLAUDE_DELEGATE_PROFILE_LOG JSONL), `format_jira_text` (Markdown-to-plain-text conversion via `jira-safe-text.py`), and the change-contract tools `create_change_spec`, `get_change_spec`, `delegate_change_task`, `record_change_task_review` (see [Change Contract](#change-contract) below).
+
+## Change Contract
+
+A persisted JSON file (`change.json` under `.claude-delegate/changes/<change-id>/` in the target project) that lets an orchestrator write a plan once — goal, non-goals, requirements, tasks, dependencies, ownership boundaries, verification commands — and reference it by ID across multiple sessions or delegation passes, instead of re-explaining the plan in every prompt. Each delegation of a task appends an append-only run record under `runs/run-NNNN.json`.
+
+The delegate only *transports and executes* tasks from the contract via `--change`/`--task` (shell) or `delegate_change_task` (MCP) — it never marks a task `verified` on its own. A task's status moves `pending → delegated` automatically; only the orchestrator, after independently checking the diff and tests, can move it to `verified` (or `failed`/`blocked`) via `scripts/change-spec.py review` or the `record_change_task_review` MCP tool. A task is only ready for delegation when the contract validates, the change is `active`, the task is `pending`/`failed`, and every dependency is `verified` (not `delegated`). Change/task/requirement IDs must be lowercase — an uppercase-hyphenated ID like `TASK-001` collides with the classifier's ticket-detection pattern and gets misrouted.
 
 ## MCP Transport
 

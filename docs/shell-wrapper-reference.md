@@ -17,6 +17,9 @@
 | `--executor NAME` | `CLAUDE_DELEGATE_EXECUTOR` | Executor backend (`claude-code` default, or `opencode`) |
 | `--start` | — | Launch delegation in background, return job_id JSON (async mode). |
 | `--poll JOB_ID` | — | Poll async job status, return structured JSON. |
+| `--change CHANGE_ID --task TASK_ID` | — | Delegate one task from a persisted change contract. Requires both flags together; only valid in default (synchronous) mode. |
+| `--correction TEXT` | — | With `--change`/`--task`, append a correction-pass instruction and the previous run's result to the rendered task prompt. |
+| `--project-root DIR` | — | With `--change`/`--task`, locate `.claude-delegate/changes/` under `DIR` instead of the current directory. Never forwarded to the executor. |
 | `--health` | — | Run health checks (python3, claude, core scripts, runtime, mcp) and exit. Exit 0 = HEALTHY, 1 = UNHEALTHY. |
 | *(none)* | `CLAUDE_DELEGATE_THINKING_TOKENS` | Explicit thinking token budget (unset by default) |
 | *(none)* | `CLAUDE_DELEGATE_HEARTBEAT_SECONDS` | Heartbeat interval in seconds (default `30`, `0` disables) |
@@ -219,6 +222,24 @@ Output:
 | `--poll JOB_ID` | — | Poll job status, return structured JSON |
 
 All classification, envelope, model, effort, permission, MCP, and context flags work with `--start` as they do with synchronous delegation.
+
+## Change Contracts
+
+Use `--change CHANGE_ID --task TASK_ID` to delegate one task from a persisted change contract (`.claude-delegate/changes/<change-id>/change.json`) instead of passing a prompt on the command line. This is for work that spans multiple sessions or delegation passes — the goal, non-goals, requirements, tasks, dependencies, ownership boundaries, and verification commands are written once and referenced by ID from then on. See [README.md § Change contracts](../README.md#change-contracts-multi-session-orchestration) for the full workflow and [docs/prd/change-contracts.md](prd/change-contracts.md) for the design.
+
+```bash
+# Delegate a ready task (renders the full contract into a task prompt)
+"$(resolve_delegator)" --change my-change --task task-001
+
+# Correction pass after an orchestrator review rejects the result
+"$(resolve_delegator)" --change my-change --task task-001 \
+  --correction "Fix the off-by-one error."
+
+# Look up the contract under a different project root than cwd
+"$(resolve_delegator)" --change my-change --task task-001 --project-root /path/to/project
+```
+
+`--change`/`--task` must be used together and only in the default synchronous mode — combining either with `--start` or `--poll` exits 2. `--project-root` locates the contract files only; it is never forwarded to the executor. A task must be `pending` or `failed`, its change must be `active`, and every dependency must be `verified` (not merely `delegated`) before it is considered ready — an unready task exits non-zero with the specific blocker reason on stderr. Delegating a task only moves its status to `delegated` (or `failed` on executor error); reaching `verified` requires an explicit orchestrator review via `scripts/change-spec.py review` or the `record_change_task_review` MCP tool — never inferred from the executor's own report.
 
 ## Other overrides
 

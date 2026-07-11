@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
-  echo "Usage: $0 [--pro|--flash|--qwen] [--opencode] [--effort VALUE] [--quiet|--stream] [--bypass|--interactive] [--mcp MODE] [--full-context] [--allow-subagents] [--executor NAME] PROMPT [CLAUDE_ARGS...]" >&2
+  echo "Usage: $0 [--pro|--flash|--qwen] [--opencode] [--effort VALUE] [--quiet|--stream] [--bypass|--interactive] [--mcp MODE] [--full-context] [--allow-subagents] [--executor NAME] [--change CHANGE_ID --task TASK_ID [--correction TEXT]] [--project-root DIR] PROMPT [CLAUDE_ARGS...]" >&2
   exit 2
 fi
 
@@ -16,6 +16,10 @@ context_mode="${CLAUDE_DELEGATE_CONTEXT_MODE:-auto}"
 subagent_mode="${CLAUDE_DELEGATE_SUBAGENTS:-off}"
 heartbeat_seconds="${CLAUDE_DELEGATE_HEARTBEAT_SECONDS:-30}"
 executor="${CLAUDE_DELEGATE_EXECUTOR:-claude-code}"
+change_id=""
+task_id=""
+correction=""
+project_root=""
 
 if [[ -n "${CLAUDE_DELEGATE_PERMISSION_MODE:-}" ]]; then
   permission_mode="$CLAUDE_DELEGATE_PERMISSION_MODE"
@@ -120,6 +124,38 @@ while [[ $# -gt 0 ]]; do
       executor="$2"
       shift 2
       ;;
+    --change)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing value for --change" >&2
+        exit 2
+      fi
+      change_id="$2"
+      shift 2
+      ;;
+    --task)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing value for --task" >&2
+        exit 2
+      fi
+      task_id="$2"
+      shift 2
+      ;;
+    --correction)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing value for --correction" >&2
+        exit 2
+      fi
+      correction="$2"
+      shift 2
+      ;;
+    --project-root)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing value for --project-root" >&2
+        exit 2
+      fi
+      project_root="$2"
+      shift 2
+      ;;
     --)
       shift
       break
@@ -130,8 +166,18 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ $# -lt 1 ]] && [[ "$mode" != "poll" ]] && [[ "$mode" != "status" ]]; then
-  echo "Usage: $0 [--start|--poll JOB_ID|--status JOB_ID] [--pro|--flash|--qwen] [--opencode] [--effort VALUE] [--quiet|--stream] [--bypass|--interactive] [--mcp MODE] [--full-context] [--allow-subagents] [--executor NAME] PROMPT [CLAUDE_ARGS...]" >&2
+if [[ ( -n "$change_id" && -z "$task_id" ) || ( -z "$change_id" && -n "$task_id" ) ]]; then
+  echo "--change and --task must be used together" >&2
+  exit 2
+fi
+
+if [[ -n "$change_id" && -n "$task_id" && "$mode" != "exec" ]]; then
+  echo "--change/--task is only supported for the default (synchronous) run mode" >&2
+  exit 2
+fi
+
+if [[ $# -lt 1 ]] && [[ "$mode" != "poll" ]] && [[ "$mode" != "status" ]] && [[ -z "$change_id" || -z "$task_id" ]]; then
+  echo "Usage: $0 [--start|--poll JOB_ID|--status JOB_ID] [--pro|--flash|--qwen] [--opencode] [--effort VALUE] [--quiet|--stream] [--bypass|--interactive] [--mcp MODE] [--full-context] [--allow-subagents] [--executor NAME] [--change CHANGE_ID --task TASK_ID [--correction TEXT]] [--project-root DIR] PROMPT [CLAUDE_ARGS...]" >&2
   exit 2
 fi
 
@@ -176,7 +222,7 @@ if [[ "$mode" != "poll" ]] && [[ "$mode" != "status" ]]; then
   esac
 fi
 
-if [[ "$mode" != "poll" ]] && [[ "$mode" != "status" ]]; then
+if [[ "$mode" != "poll" ]] && [[ "$mode" != "status" ]] && [[ -z "$change_id" || -z "$task_id" ]]; then
   prompt="$1"
   shift
 fi
@@ -214,16 +260,33 @@ case "$mode" in
       "$status_job_id"
     ;;
   *)
-    exec python3 "$script_dir/run-pipeline.py" \
-      "$prompt" \
-      "$output_mode" \
-      "$model_tier" \
-      "$effort" \
-      "$permission_mode" \
-      "$mcp_mode" \
-      "$context_mode" \
-      "$subagent_mode" \
-      "$executor" \
-      "$@"
+    if [[ -n "$change_id" && -n "$task_id" ]]; then
+      exec python3 "$script_dir/run-pipeline.py" \
+        "--change-task" \
+        "$change_id" \
+        "$task_id" \
+        "$correction" \
+        "$project_root" \
+        "$output_mode" \
+        "$model_tier" \
+        "$effort" \
+        "$permission_mode" \
+        "$mcp_mode" \
+        "$context_mode" \
+        "$subagent_mode" \
+        "$executor"
+    else
+      exec python3 "$script_dir/run-pipeline.py" \
+        "$prompt" \
+        "$output_mode" \
+        "$model_tier" \
+        "$effort" \
+        "$permission_mode" \
+        "$mcp_mode" \
+        "$context_mode" \
+        "$subagent_mode" \
+        "$executor" \
+        "$@"
+    fi
     ;;
 esac

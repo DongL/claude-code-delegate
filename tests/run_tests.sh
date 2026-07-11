@@ -2074,6 +2074,32 @@ assert result.get('result') != '', f'expected fallback result, got empty'
 assert result.get('terminal_reason') == 'empty_result_fallback', f'expected empty_result_fallback, got {result.get(\"terminal_reason\")}'
 print('POLL_GUARD_OK')"
 
+# Poll path: non-zero executor with useful stdout and empty stderr should
+# still return the partial/completed result to the orchestrator.
+test_pipeline_py \
+  "empty-result guard: poll_delegation_status preserves nonzero stdout" \
+  "POLL_NONZERO_STDOUT_OK" 0 \
+  "import sys, os
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+
+from job_manager import create_job_id, get_jobs_dir, create_job_meta, write_job_result
+from pipeline import poll_delegation_status
+
+jid = create_job_id()
+jobs_dir = get_jobs_dir()
+d = jobs_dir / jid
+d.mkdir(parents=True, exist_ok=True)
+create_job_meta(jid, os.getpid(), 'test', 'm', 'low', 'bypass', 'none', 'quiet')
+
+write_job_result(jid, 1, 'FINISHED_BUT_NONZERO', '')
+
+result = poll_delegation_status(jid)
+assert result.get('status') == 'completed', f'expected completed, got {result}'
+assert result.get('result') == 'FINISHED_BUT_NONZERO', result
+assert result.get('terminal_reason') == 'executor_nonzero_with_output', result
+assert result.get('returncode') == 1, result
+print('POLL_NONZERO_STDOUT_OK')"
+
 # ---- opencode_invoker.py tests ----
 
 echo ""
@@ -2334,6 +2360,49 @@ try:
 finally:
     os.environ['PATH'] = old_path
     os.environ['HOME'] = old_home
+    import shutil
+    shutil.rmtree(d)"
+
+test_opencode_invoker_py \
+  "pipeline preserves raw OpenCode stdout when process exits non-zero" \
+  "NONZERO_RAW_STDOUT_OK" 0 \
+  "import os, pathlib, tempfile
+from pipeline import run_delegation_pipeline
+
+d = tempfile.mkdtemp()
+fake_bin = pathlib.Path(d) / 'opencode'
+fake_bin.write_text('#!/bin/sh\\necho FINISHED_BUT_NONZERO\\nexit 1\\n')
+fake_bin.chmod(0o755)
+
+old_bin = os.environ.get('OPENCODE_BIN')
+old_hb = os.environ.get('CLAUDE_DELEGATE_HEARTBEAT_SECONDS')
+os.environ['OPENCODE_BIN'] = str(fake_bin)
+os.environ['CLAUDE_DELEGATE_HEARTBEAT_SECONDS'] = '0'
+try:
+    result = run_delegation_pipeline(
+        'small prompt',
+        model_tier='flash',
+        effort='medium',
+        permission_mode='bypassPermissions',
+        mcp_mode='none',
+        context_mode='auto',
+        subagent_mode='off',
+        output_mode='quiet',
+        executor='opencode',
+    )
+    assert result.result.strip() == 'FINISHED_BUT_NONZERO', result
+    assert result.terminal_reason == 'executor_nonzero_with_output', result
+    assert result.is_error is False, result
+    print('NONZERO_RAW_STDOUT_OK')
+finally:
+    if old_bin is None:
+        os.environ.pop('OPENCODE_BIN', None)
+    else:
+        os.environ['OPENCODE_BIN'] = old_bin
+    if old_hb is None:
+        os.environ.pop('CLAUDE_DELEGATE_HEARTBEAT_SECONDS', None)
+    else:
+        os.environ['CLAUDE_DELEGATE_HEARTBEAT_SECONDS'] = old_hb
     import shutil
     shutil.rmtree(d)"
 
@@ -4272,9 +4341,18 @@ print('supervisor_exception_recorded')"
 echo ""
 echo "=== wrapper --start / --poll ==="
 
-# Create fake claude that exits 0 with valid result JSON
+# Create fake claude that exits 0 with valid result JSON. Mirrors the
+# capture-echo instrumentation of the original "$SANDBOX/claude" (see top of
+# file) so tests further down the file that restore this variant via
+# `cp "$SANDBOX/claude-ok" "$SANDBOX/claude"` still get working
+# CLAUDE_DELEGATE_TEST_CAPTURE recording, not a silent no-op binary.
 cat > "$SANDBOX/claude-ok" <<'FAKEOK'
 #!/usr/bin/env bash
+echo "args:$*" >> "${CLAUDE_DELEGATE_TEST_CAPTURE:-/dev/null}"
+echo "MAX_THINKING_TOKENS:${MAX_THINKING_TOKENS:-}" >> "${CLAUDE_DELEGATE_TEST_CAPTURE:-/dev/null}"
+echo "ANTHROPIC_BASE_URL:${ANTHROPIC_BASE_URL:-}" >> "${CLAUDE_DELEGATE_TEST_CAPTURE:-/dev/null}"
+echo "ANTHROPIC_AUTH_TOKEN:${ANTHROPIC_AUTH_TOKEN:-}" >> "${CLAUDE_DELEGATE_TEST_CAPTURE:-/dev/null}"
+echo "CLAUDE_CONFIG_DIR:${CLAUDE_CONFIG_DIR:-}" >> "${CLAUDE_DELEGATE_TEST_CAPTURE:-/dev/null}"
 cat <<'JSONEOF'
 {"type":"result","result":"done","usage":{"input_tokens":5,"output_tokens":10}}
 JSONEOF
@@ -4619,6 +4697,421 @@ print('poll_not_found_ok')"
 else
   echo "  SKIP  async delegation MCP tests (mcp package not installed)"
   passed=$((passed+3))
+fi
+
+# ---- run-claude-code.sh --change/--task/--correction/--project-root ----
+
+echo ""
+echo "=== run-claude-code.sh --change/--task ==="
+
+CHANGE_PROJECT_ROOT="$SANDBOX/change_project"
+mkdir -p "$CHANGE_PROJECT_ROOT"
+
+# setup_change_fixture [task_status]
+# (Re)writes a single-task change contract ("change-cli-test"/"task-001")
+# into CHANGE_PROJECT_ROOT so each test below starts from known state.
+setup_change_fixture() {
+  local task_status="${1:-pending}"
+  python3 -c "
+import sys
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+from pathlib import Path
+from change_spec import ChangeSpec, ChangeRequirement, ChangeTask, save_change_spec
+
+spec = ChangeSpec(
+    schema_version=1,
+    change_id='change-cli-test',
+    title='Change CLI test',
+    status='active',
+    goal='Exercise run-claude-code.sh --change/--task flags.',
+    non_goals=[],
+    requirements=[ChangeRequirement(id='req-001', text='Do the thing.')],
+    tasks=[
+        ChangeTask(
+            id='task-001',
+            title='Do the thing',
+            instructions=['Do it.'],
+            requirement_ids=['req-001'],
+            status='$task_status',
+        )
+    ],
+    created_at='2026-07-10T00:00:00Z',
+    updated_at='2026-07-10T00:00:00Z',
+)
+save_change_spec(Path('$CHANGE_PROJECT_ROOT'), spec)
+"
+}
+
+# assert_task_status expected_status -- reads change-cli-test/task-001's
+# persisted status back out of CHANGE_PROJECT_ROOT.
+assert_task_status() {
+  local name="$1" expected_status="$2"
+  if python3 -c "
+import sys
+sys.path.insert(0, '$SCRIPT_DIR/../scripts')
+from pathlib import Path
+from change_spec import load_change_spec
+spec = load_change_spec(Path('$CHANGE_PROJECT_ROOT'), 'change-cli-test')
+task = next(t for t in spec.tasks if t.id == 'task-001')
+assert task.status == '$expected_status', task.status
+print('status_ok')
+" 2>&1 | grep -q "status_ok"; then
+    echo "  PASS  $name"
+    passed=$((passed+1))
+  else
+    echo "  FAIL  $name (task-001 status is not '$expected_status')"
+    failed=$((failed+1))
+  fi
+}
+
+setup_change_fixture pending
+# The rendered task prompt's "Change/Task/Goal" header classifies as a small
+# code-edit task, so classify_prompt resolves the flash model here, not pro.
+test_case "change/task flags delegate through fake claude" 0 "--model deepseek-v4-flash[1m]" \
+  --change change-cli-test --task task-001 --project-root "$CHANGE_PROJECT_ROOT"
+assert_task_status "change/task flags mark task-001 delegated" "delegated"
+
+setup_change_fixture pending
+test_runner_stdout "change/task quiet report shows Result section" "Result" \
+  --change change-cli-test --task task-001 --project-root "$CHANGE_PROJECT_ROOT"
+
+# task-001 is now "delegated" (not pending/failed) -- readiness must fail.
+test_exit "delegated task is not re-delegated without a status reset" 1 \
+  --change change-cli-test --task task-001 --project-root "$CHANGE_PROJECT_ROOT"
+
+# Simulate an orchestrator rejection so the correction pass below is ready.
+setup_change_fixture failed
+test_case "correction pass sends 'Correction Pass' appendix to claude" 0 "Correction Pass" \
+  --change change-cli-test --task task-001 --correction "Fix the off-by-one error." \
+  --project-root "$CHANGE_PROJECT_ROOT"
+assert_task_status "correction pass marks task-001 delegated again" "delegated"
+
+test_exit "unknown change_id exits non-zero" 1 \
+  --change no-such-change --task task-001 --project-root "$CHANGE_PROJECT_ROOT"
+
+test_exit "unknown task_id exits non-zero" 1 \
+  --change change-cli-test --task no-such-task --project-root "$CHANGE_PROJECT_ROOT"
+
+test_exit "--change without --task exits 2" 2 \
+  --change change-cli-test
+
+test_exit "--task without --change exits 2" 2 \
+  --task task-001
+
+test_exit "--start combined with --change/--task exits 2" 2 \
+  --start --change change-cli-test --task task-001 --project-root "$CHANGE_PROJECT_ROOT"
+
+test_exit "--poll combined with --change/--task exits 2" 2 \
+  --poll some-job-id --change change-cli-test --task task-001
+
+setup_change_fixture pending
+test_case "--project-root overrides cwd for change/task lookup" 0 "--model deepseek-v4-flash[1m]" \
+  --change change-cli-test --task task-001 --project-root "$CHANGE_PROJECT_ROOT"
+
+# ---- change-spec.py CLI tests (tests/test_change_spec_cli.sh) ----
+
+echo ""
+echo "=== change-spec.py CLI ==="
+
+CHANGE_SPEC_CLI_TEST="$SCRIPT_DIR/test_change_spec_cli.sh"
+if [ -f "$CHANGE_SPEC_CLI_TEST" ]; then
+  set +e
+  cli_test_output=$(bash "$CHANGE_SPEC_CLI_TEST" 2>&1)
+  cli_test_rc=$?
+  set -e
+  echo "$cli_test_output"
+  cli_passed=$(printf '%s\n' "$cli_test_output" | grep -c "^  PASS " || true)
+  cli_failed=$(printf '%s\n' "$cli_test_output" | grep -c "^  FAIL " || true)
+  passed=$((passed+cli_passed))
+  failed=$((failed+cli_failed))
+  if [ "$cli_test_rc" -ne 0 ] && [ "$cli_failed" -eq 0 ]; then
+    # Non-zero exit without any FAIL line means the harness itself errored
+    # (e.g. a syntax error) rather than reporting a normal test failure.
+    echo "  FAIL  test_change_spec_cli.sh exited $cli_test_rc without reporting failures"
+    failed=$((failed+1))
+  fi
+else
+  echo "ERROR: $CHANGE_SPEC_CLI_TEST not found"
+  failed=$((failed+1))
+fi
+
+# ---- change-contract MCP tools ----
+
+echo ""
+echo "=== change-contract MCP tools ==="
+
+if [ "$HAS_MCP_PKG" = "yes" ]; then
+
+test_mcp_server_py \
+  "mcp_server exposes change-contract tools" \
+  "change_tools_exist" 0 \
+  "import importlib.util, os
+spec = importlib.util.spec_from_file_location(
+    'mcp_server', os.path.join('$SCRIPT_DIR/../scripts', 'mcp_server.py')
+)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+assert hasattr(mod, 'create_change_spec'), 'missing create_change_spec'
+assert hasattr(mod, 'get_change_spec'), 'missing get_change_spec'
+assert hasattr(mod, 'delegate_change_task'), 'missing delegate_change_task'
+assert hasattr(mod, 'record_change_task_review'), 'missing record_change_task_review'
+print('change_tools_exist')"
+
+test_mcp_server_py \
+  "create_change_spec persists a valid contract" \
+  "create_change_spec_ok" 0 \
+  "import importlib.util, os, sys, tempfile, asyncio
+scripts_dir = '$SCRIPT_DIR/../scripts'
+sys.path.insert(0, scripts_dir)
+spec_mod = importlib.util.spec_from_file_location('mcp_server', os.path.join(scripts_dir, 'mcp_server.py'))
+mod = importlib.util.module_from_spec(spec_mod)
+spec_mod.loader.exec_module(mod)
+
+project_root = tempfile.mkdtemp()
+spec_dict = {
+    'schema_version': 1,
+    'change_id': 'mcp-change',
+    'title': 'MCP change',
+    'status': 'active',
+    'goal': 'Exercise create_change_spec.',
+    'non_goals': [],
+    'requirements': [{'id': 'req-001', 'text': 'Do it.', 'priority': 'must'}],
+    'tasks': [{
+        'id': 'task-001', 'title': 'Do it', 'instructions': ['Do it.'],
+        'requirement_ids': ['req-001'], 'depends_on': [], 'allowed_paths': [],
+        'forbidden_paths': [], 'verification_commands': [], 'status': 'pending', 'review': None,
+    }],
+    'created_at': '2026-07-10T00:00:00Z', 'updated_at': '2026-07-10T00:00:00Z',
+}
+result = asyncio.get_event_loop().run_until_complete(
+    mod.create_change_spec(spec=spec_dict, project_root=project_root)
+)
+assert result.get('change_id') == 'mcp-change', result
+assert result.get('task_count') == 1, result
+
+from pathlib import Path
+from change_spec import load_change_spec
+loaded = load_change_spec(Path(project_root), 'mcp-change')
+assert loaded.title == 'MCP change'
+print('create_change_spec_ok')"
+
+test_mcp_server_py \
+  "create_change_spec rejects invalid contract" \
+  "create_change_spec_invalid_ok" 0 \
+  "import importlib.util, os, sys, tempfile, asyncio
+scripts_dir = '$SCRIPT_DIR/../scripts'
+sys.path.insert(0, scripts_dir)
+spec_mod = importlib.util.spec_from_file_location('mcp_server', os.path.join(scripts_dir, 'mcp_server.py'))
+mod = importlib.util.module_from_spec(spec_mod)
+spec_mod.loader.exec_module(mod)
+
+project_root = tempfile.mkdtemp()
+spec_dict = {
+    'schema_version': 1,
+    'change_id': 'mcp-change-bad',
+    'title': 'Bad',
+    'status': 'active',
+    'goal': 'g',
+    'non_goals': [],
+    'requirements': [],
+    'tasks': [{
+        'id': 'task-001', 'title': 't', 'instructions': [],
+        'requirement_ids': [], 'depends_on': [], 'allowed_paths': [],
+        'forbidden_paths': [], 'verification_commands': [], 'status': 'pending', 'review': None,
+    }],
+    'created_at': '2026-07-10T00:00:00Z', 'updated_at': '2026-07-10T00:00:00Z',
+}
+result = asyncio.get_event_loop().run_until_complete(
+    mod.create_change_spec(spec=spec_dict, project_root=project_root)
+)
+assert 'error' in result, result
+print('create_change_spec_invalid_ok')"
+
+test_mcp_server_py \
+  "get_change_spec reports goal, status, tasks, and blockers" \
+  "get_change_spec_ok" 0 \
+  "import importlib.util, os, sys, tempfile, asyncio
+from pathlib import Path
+scripts_dir = '$SCRIPT_DIR/../scripts'
+sys.path.insert(0, scripts_dir)
+from change_spec import ChangeSpec, ChangeRequirement, ChangeTask, save_change_spec
+
+spec_mod = importlib.util.spec_from_file_location('mcp_server', os.path.join(scripts_dir, 'mcp_server.py'))
+mod = importlib.util.module_from_spec(spec_mod)
+spec_mod.loader.exec_module(mod)
+
+project_root = tempfile.mkdtemp()
+spec = ChangeSpec(
+    schema_version=1, change_id='mcp-get', title='Get me', status='active',
+    goal='Report status.', non_goals=[], requirements=[ChangeRequirement(id='req-001', text='t')],
+    tasks=[
+        ChangeTask(id='task-001', title='First', instructions=['i'], requirement_ids=['req-001'], status='verified'),
+        ChangeTask(id='task-002', title='Second', instructions=['i'], requirement_ids=['req-001'], depends_on=['task-001']),
+    ],
+    created_at='2026-07-10T00:00:00Z', updated_at='2026-07-10T00:00:00Z',
+)
+save_change_spec(Path(project_root), spec)
+
+result = asyncio.get_event_loop().run_until_complete(
+    mod.get_change_spec(change_id='mcp-get', project_root=project_root)
+)
+assert result['goal'] == 'Report status.', result
+assert result['status'] == 'active', result
+statuses = {t['id']: t['status'] for t in result['tasks']}
+assert statuses == {'task-001': 'verified', 'task-002': 'pending'}, statuses
+ready_map = {t['id']: t['ready'] for t in result['tasks']}
+assert ready_map['task-002'] is True, ready_map
+print('get_change_spec_ok')"
+
+test_mcp_server_py \
+  "get_change_spec returns error for unknown change" \
+  "get_change_spec_error_ok" 0 \
+  "import importlib.util, os, sys, tempfile, asyncio
+scripts_dir = '$SCRIPT_DIR/../scripts'
+sys.path.insert(0, scripts_dir)
+spec_mod = importlib.util.spec_from_file_location('mcp_server', os.path.join(scripts_dir, 'mcp_server.py'))
+mod = importlib.util.module_from_spec(spec_mod)
+spec_mod.loader.exec_module(mod)
+
+project_root = tempfile.mkdtemp()
+result = asyncio.get_event_loop().run_until_complete(
+    mod.get_change_spec(change_id='does-not-exist', project_root=project_root)
+)
+assert 'error' in result, result
+print('get_change_spec_error_ok')"
+
+test_mcp_server_py \
+  "delegate_change_task delegates via shared pipeline" \
+  "delegate_change_task_ok" 0 \
+  "import importlib.util, os, sys, tempfile, asyncio
+from pathlib import Path
+scripts_dir = '$SCRIPT_DIR/../scripts'
+sys.path.insert(0, scripts_dir)
+from change_spec import ChangeSpec, ChangeRequirement, ChangeTask, save_change_spec, load_change_spec
+
+spec_mod = importlib.util.spec_from_file_location('mcp_server', os.path.join(scripts_dir, 'mcp_server.py'))
+mod = importlib.util.module_from_spec(spec_mod)
+spec_mod.loader.exec_module(mod)
+
+project_root = tempfile.mkdtemp()
+spec = ChangeSpec(
+    schema_version=1, change_id='mcp-delegate', title='Delegate me', status='active',
+    goal='Exercise delegate_change_task.', non_goals=[], requirements=[ChangeRequirement(id='req-001', text='t')],
+    tasks=[ChangeTask(id='task-001', title='First', instructions=['Do it.'], requirement_ids=['req-001'])],
+    created_at='2026-07-10T00:00:00Z', updated_at='2026-07-10T00:00:00Z',
+)
+save_change_spec(Path(project_root), spec)
+
+result = asyncio.get_event_loop().run_until_complete(
+    mod.delegate_change_task(change_id='mcp-delegate', task_id='task-001', project_root=project_root)
+)
+assert result.get('result') == 'done', result
+
+reloaded = load_change_spec(Path(project_root), 'mcp-delegate')
+task = next(t for t in reloaded.tasks if t.id == 'task-001')
+assert task.status == 'delegated', task.status
+print('delegate_change_task_ok')"
+
+test_mcp_server_py \
+  "delegate_change_task surfaces unready task as pipeline_error" \
+  "delegate_change_task_unready_ok" 0 \
+  "import importlib.util, os, sys, tempfile, asyncio
+from pathlib import Path
+scripts_dir = '$SCRIPT_DIR/../scripts'
+sys.path.insert(0, scripts_dir)
+from change_spec import ChangeSpec, ChangeRequirement, ChangeTask, save_change_spec
+
+spec_mod = importlib.util.spec_from_file_location('mcp_server', os.path.join(scripts_dir, 'mcp_server.py'))
+mod = importlib.util.module_from_spec(spec_mod)
+spec_mod.loader.exec_module(mod)
+
+project_root = tempfile.mkdtemp()
+spec = ChangeSpec(
+    schema_version=1, change_id='mcp-unready', title='Unready', status='active',
+    goal='g', non_goals=[], requirements=[ChangeRequirement(id='req-001', text='t')],
+    tasks=[ChangeTask(id='task-001', title='First', instructions=['i'], requirement_ids=['req-001'], status='delegated')],
+    created_at='2026-07-10T00:00:00Z', updated_at='2026-07-10T00:00:00Z',
+)
+save_change_spec(Path(project_root), spec)
+
+result = asyncio.get_event_loop().run_until_complete(
+    mod.delegate_change_task(change_id='mcp-unready', task_id='task-001', project_root=project_root)
+)
+assert result.get('terminal_reason', '').startswith('pipeline_error'), result
+print('delegate_change_task_unready_ok')"
+
+test_mcp_server_py \
+  "record_change_task_review persists orchestrator review" \
+  "record_review_ok" 0 \
+  "import importlib.util, os, sys, tempfile, asyncio
+from pathlib import Path
+scripts_dir = '$SCRIPT_DIR/../scripts'
+sys.path.insert(0, scripts_dir)
+from change_spec import ChangeSpec, ChangeRequirement, ChangeTask, save_change_spec, load_change_spec
+
+spec_mod = importlib.util.spec_from_file_location('mcp_server', os.path.join(scripts_dir, 'mcp_server.py'))
+mod = importlib.util.module_from_spec(spec_mod)
+spec_mod.loader.exec_module(mod)
+
+project_root = tempfile.mkdtemp()
+spec = ChangeSpec(
+    schema_version=1, change_id='mcp-review', title='Review me', status='active',
+    goal='Exercise record_change_task_review.', non_goals=[], requirements=[ChangeRequirement(id='req-001', text='t')],
+    tasks=[ChangeTask(id='task-001', title='First', instructions=['Do it.'], requirement_ids=['req-001'], status='delegated')],
+    created_at='2026-07-10T00:00:00Z', updated_at='2026-07-10T00:00:00Z',
+)
+save_change_spec(Path(project_root), spec)
+
+result = asyncio.get_event_loop().run_until_complete(
+    mod.record_change_task_review(
+        change_id='mcp-review', task_id='task-001', status='verified',
+        summary='Diff limited to expected files. Tests passed.', project_root=project_root,
+        verification_commands=['bash tests/run_tests.sh'],
+    )
+)
+assert result.get('status') == 'verified', result
+assert result['review']['summary'] == 'Diff limited to expected files. Tests passed.', result
+
+reloaded = load_change_spec(Path(project_root), 'mcp-review')
+task = next(t for t in reloaded.tasks if t.id == 'task-001')
+assert task.status == 'verified', task.status
+assert task.review.verification_commands == ['bash tests/run_tests.sh'], task.review
+print('record_review_ok')"
+
+test_mcp_server_py \
+  "record_change_task_review returns error for unknown task" \
+  "record_review_error_ok" 0 \
+  "import importlib.util, os, sys, tempfile, asyncio
+from pathlib import Path
+scripts_dir = '$SCRIPT_DIR/../scripts'
+sys.path.insert(0, scripts_dir)
+from change_spec import ChangeSpec, ChangeRequirement, ChangeTask, save_change_spec
+
+spec_mod = importlib.util.spec_from_file_location('mcp_server', os.path.join(scripts_dir, 'mcp_server.py'))
+mod = importlib.util.module_from_spec(spec_mod)
+spec_mod.loader.exec_module(mod)
+
+project_root = tempfile.mkdtemp()
+spec = ChangeSpec(
+    schema_version=1, change_id='mcp-review-2', title='Review me', status='active',
+    goal='g', non_goals=[], requirements=[ChangeRequirement(id='req-001', text='t')],
+    tasks=[ChangeTask(id='task-001', title='First', instructions=['i'], requirement_ids=['req-001'])],
+    created_at='2026-07-10T00:00:00Z', updated_at='2026-07-10T00:00:00Z',
+)
+save_change_spec(Path(project_root), spec)
+
+result = asyncio.get_event_loop().run_until_complete(
+    mod.record_change_task_review(
+        change_id='mcp-review-2', task_id='no-such-task', status='verified',
+        summary='x', project_root=project_root,
+    )
+)
+assert 'error' in result, result
+print('record_review_error_ok')"
+
+else
+  echo "  SKIP  change-contract MCP tests (mcp package not installed)"
+  passed=$((passed+7))
 fi
 
 # ---- summary ----

@@ -5,8 +5,20 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
+from change_spec import (
+    ChangeSpecError,
+    append_run_record,
+    build_task_prompt,
+    get_latest_run_record,
+    get_task_readiness,
+    load_change_spec,
+    save_change_spec,
+    validate_change_spec,
+)
 from classifier import Classification, classify_prompt, FLASH_MODEL, PRO_MODEL, QWEN_MODEL, build_prepared_prompt, classification_to_dict
 from invoker import InvokerConfig, invoke_claude
 from job_manager import (
@@ -269,12 +281,20 @@ def run_delegation_pipeline(
         # Guard: if parser returned empty result but executor produced
         # non-empty stdout, fall back to raw stdout and set diagnostic
         # terminal_reason.  Prevents MCP delegate_task from silently
-        # returning success with result="" and terminal_reason="".
+        # returning success with result="" and terminal_reason="".  Some
+        # OpenCode runs can complete useful work, emit plain text stdout,
+        # and still exit non-zero with empty stderr; keep that output
+        # available to the orchestrator instead of returning a blank result.
         if not parsed.get("result") and result.stdout.strip():
-            if result.returncode == 0:
-                parsed["result"] = result.stdout
+            parsed["result"] = result.stdout
             if not parsed.get("terminal_reason"):
-                parsed["terminal_reason"] = "empty_result_fallback"
+                parsed["terminal_reason"] = (
+                    "empty_result_fallback"
+                    if result.returncode == 0
+                    else "executor_nonzero_with_output"
+                )
+            if result.returncode != 0 and not result.stderr.strip():
+                parsed["is_error"] = False
 
         if result.returncode != 0:
             logger.error(
@@ -382,6 +402,13 @@ def start_delegation_async(
     resolved_subagents = resolved["subagent_mode"]
 
     final_prompt, _ = build_prepared_prompt(prompt, classification, context_mode)
+    
+    if not final_prompt or not final_prompt.strip():
+        return {
+                "status": "failed",
+                "job_id": "",
+                "error": "empty prompt after classification"
+        }
 
     _heartbeat = 0
     try:
@@ -418,6 +445,16 @@ def start_delegation_async(
     persist_job_config(job_id, asdict(config))
 
     run_pipeline = os.path.join(_scripts_dir, "run-pipeline.py")
+
+    logger.debug(
+        "spawning supervisor",
+        job_id=job_id,
+        model=model,
+        effort=final_effort,
+        permission_mode=final_permission,
+        mcp_mode=resolved_mcp,
+        output_mode=output_mode,
+    )
 
     supervisor_proc = subprocess.Popen(
         [sys.executable, run_pipeline, "--supervise", job_id],
@@ -477,10 +514,13 @@ def poll_delegation_status(job_id: str) -> dict[str, Any]:
             # Same guard as run_delegation_pipeline: don't silently return
             # empty success when stdout has content.
             if not parsed.get("result") and status.get("stdout", "").strip():
-                if status.get("returncode", 0) == 0:
-                    parsed["result"] = status["stdout"]
+                parsed["result"] = status["stdout"]
                 if not parsed.get("terminal_reason"):
-                    parsed["terminal_reason"] = "empty_result_fallback"
+                    parsed["terminal_reason"] = (
+                        "empty_result_fallback"
+                        if status.get("returncode", 0) == 0
+                        else "executor_nonzero_with_output"
+                    )
 
             subagent_mode = status.get("subagent_mode", "off")
             allowed = subagent_mode == "on"
@@ -508,4 +548,114 @@ def poll_delegation_status(job_id: str) -> dict[str, Any]:
                 "stderr_tail": "completed output could not be parsed",
             }
 
+    if (
+        status["status"] == "failed"
+        and status.get("stdout_tail", "").strip()
+        and not status.get("stderr_tail", "").strip()
+    ):
+        stdout_tail = status["stdout_tail"]
+        parsed = parse_compact_output(stdout_tail)
+        if not parsed.get("result"):
+            parsed["result"] = stdout_tail
+        if not parsed.get("terminal_reason"):
+            parsed["terminal_reason"] = "executor_nonzero_with_output"
+
+        subagent_mode = status.get("subagent_mode", "off")
+        allowed = subagent_mode == "on"
+        return {
+            "status": "completed",
+            "job_id": job_id,
+            "returncode": status.get("returncode", -1),
+            "result": parsed.get("result", ""),
+            "usage": parsed.get("usage", {}),
+            "cost_usd": parsed.get("cost_usd", 0.0),
+            "terminal_reason": parsed.get("terminal_reason", ""),
+            "model": parsed.get("model", ""),
+            "effort": parsed.get("effort", ""),
+            "subagents": {
+                "mode": subagent_mode,
+                "allowed": allowed,
+                "observed_count": 0 if not allowed else None,
+                "observed_source": "disabled" if not allowed else "not_observable_in_quiet_json",
+            },
+        }
+
     return status
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def run_change_task_pipeline(
+    *,
+    project_root: str | None = None,
+    change_id: str,
+    task_id: str,
+    correction: str | None = None,
+    **pipeline_options: Any,
+) -> DelegationResult:
+    """Delegate one change-contract task through the existing pipeline.
+
+    ``project_root`` locates the change-contract files under
+    ``.claude-delegate/changes/`` only (PRD sections 6.3.1 and 16); it is
+    never forwarded to InvokerConfig or invoke_claude. Extra
+    ``pipeline_options`` (model_tier, effort, permission_mode, mcp_mode,
+    context_mode, subagent_mode, output_mode, executor) pass straight through
+    to the unmodified ``run_delegation_pipeline``.
+    """
+    resolved_root = Path(project_root) if project_root is not None else Path.cwd()
+
+    spec = load_change_spec(resolved_root, change_id)
+    validate_change_spec(spec)
+
+    task = next((t for t in spec.tasks if t.id == task_id), None)
+    if task is None:
+        raise ChangeSpecError(f"unknown task id {task_id!r} in change {change_id!r}")
+
+    ready, reasons = get_task_readiness(spec, task_id)
+    if not ready:
+        raise ChangeSpecError(
+            f"task {task_id!r} in change {change_id!r} is not ready for delegation: "
+            + "; ".join(reasons)
+        )
+
+    previous_result = None
+    if correction is not None:
+        latest_run = get_latest_run_record(resolved_root, change_id)
+        if latest_run is not None:
+            previous_result = latest_run.get("result")
+
+    prompt = build_task_prompt(spec, task_id, correction=correction, previous_result=previous_result)
+
+    started_at = _utc_now_iso()
+    result = run_delegation_pipeline(prompt, **pipeline_options)
+    completed_at = _utc_now_iso()
+
+    append_run_record(
+        resolved_root,
+        change_id,
+        {
+            "schema_version": 1,
+            "task_id": task_id,
+            "started_at": started_at,
+            "completed_at": completed_at,
+            "correction": correction,
+            "executor": pipeline_options.get("executor", "claude-code"),
+            "model": result.model,
+            "effort": result.effort,
+            "permission_mode": result.permission_mode,
+            "mcp_mode": result.mcp_mode,
+            "task_type": result.task_type,
+            "terminal_reason": result.terminal_reason,
+            "is_error": result.is_error,
+            "cost_usd": result.cost_usd,
+            "usage": result.usage,
+            "result": result.result,
+        },
+    )
+
+    task.status = "failed" if result.is_error else "delegated"
+    save_change_spec(resolved_root, spec)
+
+    return result

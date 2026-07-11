@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 from typing import Any
 
 _scripts_root = os.path.dirname(os.path.abspath(__file__))
@@ -195,6 +196,188 @@ async def poll_delegation_compact(job_id: str) -> dict[str, Any]:
         }
 
     return result
+
+
+# --------------------------------------------------------------------------
+# Change-contract tools (docs/prd/change-contracts.md section 19)
+# --------------------------------------------------------------------------
+
+
+@server.tool(structured_output=False)
+async def create_change_spec(
+    spec: dict[str, Any],
+    project_root: str | None = None,
+) -> dict[str, Any]:
+    """Validate and persist an orchestrator-authored change contract."""
+    import importlib
+
+    for mod_name in ("change_spec", "pipeline"):
+        m = sys.modules.get(mod_name)
+        if m is not None:
+            importlib.reload(m)
+
+    from change_spec import change_spec_from_dict, save_change_spec, validate_change_spec
+
+    try:
+        resolved_root = Path(project_root) if project_root else Path.cwd()
+        parsed = change_spec_from_dict(spec)
+        validate_change_spec(parsed)
+        path = save_change_spec(resolved_root, parsed)
+    except Exception as exc:
+        return {"error": str(exc)}
+
+    return {
+        "change_id": parsed.change_id,
+        "path": str(path),
+        "status": parsed.status,
+        "task_count": len(parsed.tasks),
+        "requirement_count": len(parsed.requirements),
+    }
+
+
+@server.tool(structured_output=False)
+async def get_change_spec(
+    change_id: str,
+    project_root: str | None = None,
+) -> dict[str, Any]:
+    """Inspect a change contract: goal, status, task statuses/blockers, latest run."""
+    import importlib
+
+    for mod_name in ("change_spec", "pipeline"):
+        m = sys.modules.get(mod_name)
+        if m is not None:
+            importlib.reload(m)
+
+    from change_spec import get_latest_run_record, get_task_readiness, load_change_spec
+
+    try:
+        resolved_root = Path(project_root) if project_root else Path.cwd()
+        spec = load_change_spec(resolved_root, change_id)
+
+        tasks = []
+        for task in spec.tasks:
+            ready, blockers = get_task_readiness(spec, task.id)
+            tasks.append(
+                {
+                    "id": task.id,
+                    "title": task.title,
+                    "status": task.status,
+                    "ready": ready,
+                    "blockers": blockers,
+                }
+            )
+
+        latest_run = get_latest_run_record(resolved_root, change_id)
+    except Exception as exc:
+        return {"error": str(exc)}
+
+    return {
+        "change_id": spec.change_id,
+        "title": spec.title,
+        "status": spec.status,
+        "goal": spec.goal,
+        "tasks": tasks,
+        "latest_run": latest_run,
+    }
+
+
+@server.tool(structured_output=False)
+async def delegate_change_task(
+    change_id: str,
+    task_id: str,
+    project_root: str | None = None,
+    correction: str | None = None,
+    model_tier: str = "auto",
+    effort: str = "auto",
+    permission_mode: str = "auto",
+    mcp_mode: str = "all",
+    context_mode: str = "auto",
+    allow_subagents: bool = False,
+    output_mode: str = "quiet",
+    executor: str = "claude-code",
+) -> dict[str, Any]:
+    """Delegate one change-contract task through the existing pipeline."""
+    import importlib
+
+    for mod_name in ("job_manager", "classifier", "invoker", "opencode_invoker", "change_spec", "pipeline"):
+        m = sys.modules.get(mod_name)
+        if m is not None:
+            importlib.reload(m)
+
+    from pipeline import run_change_task_pipeline
+
+    try:
+        result = run_change_task_pipeline(
+            project_root=project_root,
+            change_id=change_id,
+            task_id=task_id,
+            correction=correction,
+            model_tier=model_tier,
+            effort=effort,
+            permission_mode=permission_mode,
+            mcp_mode=mcp_mode,
+            context_mode=context_mode,
+            subagent_mode="on" if allow_subagents else "off",
+            output_mode=output_mode,
+            executor=executor,
+        )
+    except Exception as exc:
+        return {
+            "classification": {},
+            "result": "",
+            "usage": {},
+            "cost_usd": 0.0,
+            "terminal_reason": f"pipeline_error: {exc}",
+        }
+
+    return {
+        "classification": result.classification,
+        "result": result.result,
+        "usage": result.usage,
+        "cost_usd": result.cost_usd,
+        "terminal_reason": result.terminal_reason,
+        "subagents": getattr(result, "subagents", {}),
+    }
+
+
+@server.tool(structured_output=False)
+async def record_change_task_review(
+    change_id: str,
+    task_id: str,
+    status: str,
+    summary: str,
+    project_root: str | None = None,
+    verification_commands: list[str] | None = None,
+) -> dict[str, Any]:
+    """Persist the orchestrator's review outcome for a change-contract task."""
+    import importlib
+
+    m = sys.modules.get("change_spec")
+    if m is not None:
+        importlib.reload(m)
+
+    from change_spec import record_task_review, task_review_to_dict
+
+    try:
+        resolved_root = Path(project_root) if project_root else Path.cwd()
+        spec = record_task_review(
+            resolved_root,
+            change_id,
+            task_id,
+            status=status,
+            summary=summary,
+            verification_commands=verification_commands,
+        )
+    except Exception as exc:
+        return {"error": str(exc)}
+
+    task = next(t for t in spec.tasks if t.id == task_id)
+    return {
+        "change_id": spec.change_id,
+        "task_id": task.id,
+        "status": task.status,
+        "review": task_review_to_dict(task.review),
+    }
 
 
 def main() -> None:

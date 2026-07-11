@@ -30,6 +30,12 @@ def _print_usage() -> None:
         "       run-pipeline.py --status <job_id>",
         file=sys.stderr,
     )
+    print(
+        "       run-pipeline.py --change-task <change_id> <task_id> <correction> "
+        "<project_root> <output_mode> <model_tier> <effort> <permission_mode> "
+        "<mcp_mode> <context_mode> <subagent_mode> <executor>",
+        file=sys.stderr,
+    )
 
 
 def main() -> int:
@@ -48,6 +54,8 @@ def main() -> int:
         return _handle_status()
     elif sys.argv[1] == "--supervise":
         return _handle_supervise()
+    elif sys.argv[1] == "--change-task":
+        return _handle_change_task()
     else:
         return _handle_exec()
 
@@ -131,36 +139,9 @@ def _handle_supervise() -> int:
     return rc
 
 
-def _handle_exec() -> int:
-    from pipeline import run_delegation_pipeline
-
-    if len(sys.argv) < 3:
-        _print_usage()
-        return 2
-
-    prompt = sys.argv[1]
-    output_mode = sys.argv[2]
-    model_tier = sys.argv[3] if len(sys.argv) > 3 else "auto"
-    effort = sys.argv[4] if len(sys.argv) > 4 else "auto"
-    permission_mode = sys.argv[5] if len(sys.argv) > 5 else "auto"
-    mcp_mode = sys.argv[6] if len(sys.argv) > 6 else "all"
-    context_mode = sys.argv[7] if len(sys.argv) > 7 else "auto"
-    subagent_mode = sys.argv[8] if len(sys.argv) > 8 else "off"
-    executor = sys.argv[9] if len(sys.argv) > 9 else "claude-code"
-
-    result = run_delegation_pipeline(
-        prompt=prompt,
-        model_tier=model_tier,
-        effort=effort,
-        permission_mode=permission_mode,
-        mcp_mode=mcp_mode,
-        context_mode=context_mode,
-        subagent_mode=subagent_mode,
-        output_mode=output_mode,
-        executor=executor,
-    )
-
-    # Print compact report (same format as compact-claude-stream.py main())
+def _print_compact_report(result) -> None:
+    """Print the compact delegation report shared by prompt-only and
+    change-task invocations (same format as compact-claude-stream.py main())."""
     executor_name = os.environ.get("CLAUDE_DELEGATE_EXECUTOR_NAME", "Claude Code")
     if result.model or result.effort or result.permission_mode or result.mcp_mode:
         print(executor_name)
@@ -236,6 +217,87 @@ def _handle_exec() -> int:
         if result.terminal_reason:
             print(f"- terminal_reason={result.terminal_reason}")
 
+    elif result.terminal_reason:
+        print()
+        print("Diagnostics")
+        print(f"- terminal_reason={result.terminal_reason}")
+
+
+def _handle_exec() -> int:
+    from pipeline import run_delegation_pipeline
+
+    if len(sys.argv) < 3:
+        _print_usage()
+        return 2
+
+    prompt = sys.argv[1]
+    output_mode = sys.argv[2]
+    model_tier = sys.argv[3] if len(sys.argv) > 3 else "auto"
+    effort = sys.argv[4] if len(sys.argv) > 4 else "auto"
+    permission_mode = sys.argv[5] if len(sys.argv) > 5 else "auto"
+    mcp_mode = sys.argv[6] if len(sys.argv) > 6 else "all"
+    context_mode = sys.argv[7] if len(sys.argv) > 7 else "auto"
+    subagent_mode = sys.argv[8] if len(sys.argv) > 8 else "off"
+    executor = sys.argv[9] if len(sys.argv) > 9 else "claude-code"
+
+    result = run_delegation_pipeline(
+        prompt=prompt,
+        model_tier=model_tier,
+        effort=effort,
+        permission_mode=permission_mode,
+        mcp_mode=mcp_mode,
+        context_mode=context_mode,
+        subagent_mode=subagent_mode,
+        output_mode=output_mode,
+        executor=executor,
+    )
+
+    _print_compact_report(result)
+    return 1 if result.is_error else 0
+
+
+def _handle_change_task() -> int:
+    """Delegate one change-contract task (scripts/run-claude-code.sh --change/--task)."""
+    from change_spec import ChangeSpecError
+    from pipeline import run_change_task_pipeline
+
+    if len(sys.argv) < 4:
+        print("Missing change_id/task_id for --change-task", file=sys.stderr)
+        return 2
+
+    change_id = sys.argv[2]
+    task_id = sys.argv[3]
+    correction = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] else None
+    project_root = sys.argv[5] if len(sys.argv) > 5 and sys.argv[5] else None
+    output_mode = sys.argv[6] if len(sys.argv) > 6 else "quiet"
+    model_tier = sys.argv[7] if len(sys.argv) > 7 else "auto"
+    effort = sys.argv[8] if len(sys.argv) > 8 else "auto"
+    permission_mode = sys.argv[9] if len(sys.argv) > 9 else "auto"
+    mcp_mode = sys.argv[10] if len(sys.argv) > 10 else "all"
+    context_mode = sys.argv[11] if len(sys.argv) > 11 else "auto"
+    subagent_mode = sys.argv[12] if len(sys.argv) > 12 else "off"
+    executor = sys.argv[13] if len(sys.argv) > 13 else "claude-code"
+
+    try:
+        result = run_change_task_pipeline(
+            project_root=project_root,
+            change_id=change_id,
+            task_id=task_id,
+            correction=correction,
+            model_tier=model_tier,
+            effort=effort,
+            permission_mode=permission_mode,
+            mcp_mode=mcp_mode,
+            context_mode=context_mode,
+            subagent_mode=subagent_mode,
+            output_mode=output_mode,
+            executor=executor,
+        )
+    except ChangeSpecError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    _print_compact_report(result)
     return 1 if result.is_error else 0
 
 

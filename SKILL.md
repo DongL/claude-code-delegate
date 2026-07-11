@@ -41,6 +41,17 @@ The `--start` / `--poll` modes enforce single-flight lease semantics to prevent 
 - [ ] Do not treat a long-running invocation as evidence of stuckness by itself. Poll the heartbeat/log-tail first.
 - [ ] If `--start` returns `"status": "lease_held"`, the orchestrator must wait for that job to complete. No retry, reduced correction plan, takeover, or second delegation is allowed while the lease is active.
 
+#### Change Contract Gate (Multi-Session Orchestration)
+
+Use a change contract instead of re-explaining the plan in every prompt when work spans multiple sessions or delegation passes.
+
+- [ ] Persist the plan once as `.claude-delegate/changes/<change-id>/change.json` (goal, non-goals, requirements, tasks, dependencies, ownership boundaries, verification commands) via `create_change_spec` (MCP) or `python3 scripts/change-spec.py` (CLI is read/validate/list/review only — writing a new contract goes through the MCP tool or `change_spec.save_change_spec`).
+- [ ] Change/task/requirement IDs must be lowercase (`change-id`, `task-001`, `req-001`). Uppercase-hyphenated IDs (`TASK-001`) collide with the classifier's ticket-detection pattern and get misrouted.
+- [ ] Delegate a task with `delegate_change_task` (MCP) or `./scripts/run-claude-code.sh --change <id> --task <id>` (CLI). This renders the full contract into a task prompt and calls the same pipeline as a normal delegation — it does not bypass the Delegate/Execute/Compact gates above.
+- [ ] A task only becomes `delegated → verified` (or `failed`/`blocked`) through an explicit orchestrator review call — `record_change_task_review` (MCP) or `change-spec.py review` (CLI). Never mark a task verified from the executor's self-report; verify the diff and tests yourself first, exactly as in the Review Gate.
+- [ ] A task is only ready for delegation when the contract validates, the change is `active`, the task is `pending`/`failed`, and every dependency is `verified` (not `delegated`). Re-delegating an already-`delegated` task without a status reset is rejected — this is intentional, not a bug.
+- [ ] For a correction pass, pass `--correction "..."` (CLI) or `correction=` (MCP `delegate_change_task`); the contract's previous run result is included automatically.
+
 ##### Poll Backoff
 
 - [ ] Poll every 30s for the first 2 checks after `--start`.
@@ -129,6 +140,10 @@ Add this to your project `.mcp.json` (or the orchestrator's `.mcp.json`) and the
 | `poll_delegation_compact` | Lightweight poll — stat() sizes only, no file tail reads. Saves tokens |
 | `aggregate_profile` | Aggregate `CLAUDE_DELEGATE_PROFILE_LOG` JSONL into a text or JSON summary |
 | `format_jira_text` | Strip Markdown formatting for Jira-safe plain text |
+| `create_change_spec` | Persist a new change contract (`change.json`) for multi-session orchestration |
+| `get_change_spec` | Read back a change contract's goal, status, tasks, and readiness blockers |
+| `delegate_change_task` | Render one contract task into a prompt and delegate it through the shared pipeline |
+| `record_change_task_review` | Record the orchestrator's own review outcome (`verified`/`failed`/`blocked`) for a task — never inferred automatically |
 
 Prefer MCP transport. Shell wrapper is fallback. Both use the same pipeline.
 

@@ -176,7 +176,7 @@ Add to your project's `.mcp.json`:
 }
 ```
 
-Your orchestrator discovers seven tools via `tools/list` and delegates with one typed call:
+Your orchestrator discovers eleven tools via `tools/list` and delegates with one typed call:
 
 ```
 delegate_task(prompt="fix the type error in src/cli.py")
@@ -185,7 +185,7 @@ delegate_task(prompt="fix the type error in src/cli.py")
 
 To use Claude Code as the orchestrator and OpenCode as the executor, pass `executor="opencode"` through MCP or use `--opencode` / `--executor opencode` with the shell wrapper.
 
-Also available: `classify_task`, `aggregate_profile`, `format_jira_text`, `start_delegation`, `poll_delegation`, and `poll_delegation_compact`. Requires `pip install mcp`.
+Also available: `classify_task`, `aggregate_profile`, `format_jira_text`, `start_delegation`, `poll_delegation`, `poll_delegation_compact`, and the change-contract tools `create_change_spec`, `get_change_spec`, `delegate_change_task`, `record_change_task_review` (see [Change contracts](#change-contracts-multi-session-orchestration) above). Requires `pip install mcp`.
 
 ### Shell wrapper (fallback)
 
@@ -269,6 +269,31 @@ For long-running tasks, use `--start` / `--poll` to prevent duplicate delegation
 ```
 
 A running job holds an execution lease. `--start` refuses to launch a second delegation while a job is running, preventing the orchestrator from wasting tokens on duplicate/retry delegations. See the Async Delegation section in [docs/shell-wrapper-reference.md](docs/shell-wrapper-reference.md) for full details.
+
+### Change contracts (multi-session orchestration)
+
+For work that spans multiple sessions or delegation passes, persist the plan as a **change contract** instead of re-explaining it in every prompt. A change contract is a JSON file (`change.json`) under `.claude-delegate/changes/<change-id>/` in the target project, holding the goal, non-goals, requirements, tasks, dependencies, ownership boundaries (allowed/forbidden paths), and verification commands. The delegate only transports and executes tasks from the contract — it never marks a task `verified` on its own; only the orchestrator can do that after independently checking the work.
+
+```bash
+# Validate/inspect a contract
+python3 scripts/change-spec.py validate <change-id> [--project-root DIR]
+python3 scripts/change-spec.py show <change-id> [--project-root DIR]
+python3 scripts/change-spec.py list [--project-root DIR]
+
+# Delegate one ready task (renders the full contract into a task prompt)
+./scripts/run-claude-code.sh --change <change-id> --task <task-id> [--project-root DIR]
+
+# Re-delegate with a correction after reviewing a rejected result
+./scripts/run-claude-code.sh --change <change-id> --task <task-id> \
+  --correction "Fix the off-by-one error." [--project-root DIR]
+
+# Record your own review outcome (never inferred from the executor's text)
+python3 scripts/change-spec.py review <change-id> <task-id> \
+  --status verified --summary "Ran the test suite, diff matches the plan." \
+  [--verification-commands "pytest tests/" ...] [--project-root DIR]
+```
+
+Task status moves `pending → delegated` automatically once `--change`/`--task` runs; it only reaches `verified` or `failed`/`blocked` through an explicit `record_task_review` (CLI: `change-spec.py review`, MCP: `record_change_task_review`) after the orchestrator has actually checked the diff and tests. A task is only "ready" for delegation when the contract validates, the change is `active`, the task itself is `pending`/`failed`, and every dependency is `verified` (not merely `delegated`). The same 4 MCP tools (`create_change_spec`, `get_change_spec`, `delegate_change_task`, `record_change_task_review`) mirror this workflow for orchestrators using the MCP transport. Change/task IDs must be lowercase (`task-001`, `req-001`) — uppercase-hyphenated IDs collide with the classifier's ticket-detection pattern.
 
 ## The Delegation Loop
 
@@ -357,9 +382,13 @@ Env var equivalents and full details: [docs/shell-wrapper-reference.md](docs/she
 | `scripts/opencode_invoker.py` | OpenCode executor — subprocess launcher and heartbeat |
 | `scripts/heartbeat.py` | Shared subprocess heartbeat monitor |
 | `scripts/classifier.py` | Task classifier + prompt template builder |
+| `scripts/change_spec.py` | Change contract model — validation, persistence, task-prompt rendering |
+| `scripts/change-spec.py` | Standalone change contract CLI — validate/show/list/review |
 | `tests/run_tests.sh` | Test runner — pipeline, invocation, and compaction |
+| `tests/test_change_spec.py` | Change contract unit tests — validation, readiness, persistence |
 | `docs/shell-wrapper-reference.md` | Full CLI flag/env-var reference |
 | `docs/jira-workflow.md` | Jira-specific delegation conventions |
+| `docs/prd/change-contracts.md` | Change contracts PRD — design rationale and full spec |
 
 ## Quality Gates
 

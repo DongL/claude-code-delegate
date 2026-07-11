@@ -8,7 +8,10 @@ logs/
 .claude-delegate/
 autoresearch-claude-code-delegate/
 docs/prd/
+docs/learning/
 AGENTS.md
 CLAUDE.md
-.claude/skills/
+.claude/
+.codex/
 .mcp.json
+*.egg-info/
